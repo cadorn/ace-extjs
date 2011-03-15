@@ -17,7 +17,7 @@ Demo / Development
 
     git clone git://github.com/cadorn/ace-extjs.git
     cd ace-extjs
-    commonjs ./
+    commonjs -v ./
 
 TODO
 ----
