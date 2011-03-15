@@ -1,0 +1,18 @@
+{
+    "uid": "http://github.com/cadorn/ace-extjs/packages/ace-worker/",
+    "main": "worker.js",
+    "directories": {
+        "lib": ""
+    },
+    "mappings": {
+        "ace": {
+            "id": "github.com/ajaxorg/ace/"
+        },
+        "cockpit": {
+            "id": "github.com/ajaxorg/cockpit/"
+        },
+        "pilot": {
+            "id": "github.com/ajaxorg/pilot/"
+        }
+    }
+}
