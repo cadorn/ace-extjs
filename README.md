@@ -9,17 +9,11 @@ This project packages the [ACE Editor](http://ace.ajax.org/) as an [ExtJS](http:
 
 The [PINF JavaScript Loader](https://github.com/pinf/loader-js) is used to provide a development environment and package releases for this project.
 
-**NOTE:** It is assumed you have the _PINF JavaScript Loader__ mapped to the `commonjs` command are are using the `node` platform by default as explained [here](https://github.com/pinf/loader-js/blob/master/docs/Setup.md).
+**NOTE:** It is assumed you have the _PINF JavaScript Loader_ mapped to the `commonjs` command are are using the `node` platform by default as explained [here](https://github.com/pinf/loader-js/blob/master/docs/Setup.md).
 
 
-Demo
-====
-
-    commonjs https://github.com/cadorn/ace-extjs/zipball/master
-
-
-Development
-===========
+Demo / Development
+==================
 
     git clone git://github.com/cadorn/ace-extjs.git
     cd ace-extjs
