@@ -5,6 +5,9 @@
         "lib": ""
     },
     "mappings": {
+        "worker": {
+            "id": "github.com/cadorn/ace-extjs/packages/ace-worker/"
+        },
         "ace": {
             "id": "github.com/ajaxorg/ace/"
         },

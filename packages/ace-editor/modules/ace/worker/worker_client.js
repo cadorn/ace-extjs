@@ -16,8 +16,7 @@ var WorkerClient = function(topLevelNamespaces, packagedJs, module, classname) {
 
     this.callbacks = [];
 
-    // TODO: This path should be configurable
-    this.$worker = new Worker("/ace/AceWorker.js");
+    this.$worker = new Worker(require.uri("worker/worker.js"));
 
     this.$worker.postMessage({
         init : true,

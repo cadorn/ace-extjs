@@ -28,12 +28,10 @@ exports.main = function()
             },
             map: {
                 "/ace/AceEditor.js": {
-                    programPath: PATH.dirname(module.id) + "/programs/ace-editor/program.json"
-                },
-                "/ace/AceWorker.js": {
-                    programPath: PATH.dirname(module.id) + "/programs/ace-worker/program.json"
+                    programPath: PATH.dirname(module.id) + "/programs/ace/program.json"
                 }
-            }
+            },
+            trackRoutes: true
         }).responder(null)))
         .use('/extjs3-ace', jsgi(new PROGRAM_SERVER.JSGI({
             api: {
@@ -43,7 +41,8 @@ exports.main = function()
                 "/extjs3-ace/Component.js": {
                     programPath: PATH.dirname(module.id) + "/programs/extjs3-ace/program.json"
                 }
-            }
+            },
+            trackRoutes: true
         }).responder(null)))
         .listen(port);
 }
