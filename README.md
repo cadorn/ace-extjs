@@ -27,7 +27,6 @@ TODO
   * Persist editor styling to survive reload
   * Document API
   * ACE Command-line support
-  * Configurable/automatic worker path (__cadorn__)
   * ExtJS 4 support/demo (__cadorn__)
   * Bundeling for production loading (__cadorn__)
 

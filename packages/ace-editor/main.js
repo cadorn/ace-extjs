@@ -32,7 +32,7 @@ module.declare([
         var catalog = require("pilot/plugin_manager").catalog;
         catalog.registerPlugins(plugins).then(function()
         {
-            var env = require("pilot/environment").create();
+            env = require("pilot/environment").create();
             catalog.startupPlugins({ env: env }).then(function()
             {
                 if (typeof callback != "undefined")

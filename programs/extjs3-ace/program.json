@@ -1,9 +1,24 @@
 {
     "boot": "github.com/cadorn/ace-extjs/packages/extjs3-ace/",
     "contexts": {
-        "github.com/cadorn/ace-extjs/packages/extjs3-ace/@/lib/component": {
-        },
-        "github.com/cadorn/ace-extjs/packages/ace-worker/@/worker": {
+        "top": {
+            "github.com/cadorn/ace-extjs/packages/extjs3-ace/@/lib/component": {
+                "load": {
+                    "github.com/cadorn/ace-extjs/packages/ace-editor/@/main": {
+                        "include": {
+                            "github.com/ajaxorg/pilot/@/lib/pilot/index": {},
+                            "github.com/ajaxorg/ace/@/lib/ace/defaults": {},
+                            "github.com/ajaxorg/cockpit/@/lib/cockpit/index": {},
+                            "github.com/ajaxorg/ace/@/lib/ace/mode/javascript": {}
+                        },
+                        "load": {
+                            "github.com/ajaxorg/ace/": {}
+                        }
+                    }
+                }
+            },
+            "github.com/cadorn/ace-extjs/packages/ace-worker/@/worker": {
+            }
         }
     },
     "packages": {
@@ -29,6 +44,11 @@
                     "uid": "https://github.com/ajaxorg/ace/",
                     "directories": {
                         "lib": "lib/ace"
+                    },
+                    "contexts": {
+                        "load": {
+                            "/lib/ace/mode/*": {}
+                        }
                     },
                     "modules": {
                         "/lib/ace/worker/worker_client": {
