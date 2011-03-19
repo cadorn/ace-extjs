@@ -2,6 +2,15 @@
     "uid": "http://github.com/cadorn/ace-extjs/packages/extjs3-ace/",
     "name": "extjs3-ace",
     "main": "lib/component.js",
+    "contexts": {
+        "top": {
+            "/lib/component": {
+                "load": {
+                    "github.com/cadorn/ace-extjs/packages/ace-editor/": {}
+                }
+            }
+        }
+    },
     "mappings": {
         "editor": {
             "id": "github.com/cadorn/ace-extjs/packages/ace-editor/"

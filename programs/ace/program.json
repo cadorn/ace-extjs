@@ -2,16 +2,7 @@
     "boot": "github.com/cadorn/ace-extjs/packages/ace-editor/",
     "contexts": {
         "top": {
-            "github.com/cadorn/ace-extjs/packages/ace-editor/@/main": {
-                "include": {
-                    "github.com/ajaxorg/pilot/@/lib/pilot/index": {},
-                    "github.com/ajaxorg/ace/@/lib/ace/defaults": {},
-                    "github.com/ajaxorg/cockpit/@/lib/cockpit/index": {},
-                    "github.com/cadorn/ace-extjs/packages/ace-editor/@/demo": {}
-                },
-                "load": {
-                    "github.com/ajaxorg/ace/": {}
-                }
+            "github.com/cadorn/ace-extjs/packages/ace-editor/": {
             },
             "github.com/cadorn/ace-extjs/packages/ace-worker/@/worker": {
             }
@@ -20,7 +11,18 @@
     "packages": {
         "github.com/cadorn/ace-extjs/packages/ace-editor/": {
             "locator": {
-                "location": "../../packages/ace-editor"
+                "location": "../../packages/ace-editor",
+                "descriptor": {
+                    "contexts": {
+                        "top": {
+                            "/main": {
+                                "include": {
+                                    "github.com/cadorn/ace-extjs/packages/ace-editor/@/demo": {}
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         "github.com/cadorn/ace-extjs/packages/ace-worker/": {
@@ -35,6 +37,16 @@
                     "uid": "https://github.com/ajaxorg/ace/",
                     "directories": {
                         "lib": "lib/ace"
+                    },
+                    "contexts": {
+                        "top": {
+                            "/lib/ace": {
+                                "load": {
+                                    "/lib/ace/mode/*": {},
+                                    "/lib/ace/theme/*": {}
+                                }
+                            }
+                        }
                     },
                     "modules": {
                         "/lib/ace/worker/worker_client": {

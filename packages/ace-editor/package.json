@@ -4,6 +4,20 @@
     "directories": {
         "lib": ""
     },
+    "contexts": {
+        "top": {
+            "/main": {
+                "include": {
+                    "github.com/ajaxorg/pilot/@/lib/pilot/index": {},
+                    "github.com/ajaxorg/ace/@/lib/ace/defaults": {},
+                    "github.com/ajaxorg/cockpit/@/lib/cockpit/index": {}
+                },
+                "load": {
+                    "github.com/ajaxorg/ace/": {}
+                }
+            }
+        }
+    },
     "mappings": {
         "worker": {
             "id": "github.com/cadorn/ace-extjs/packages/ace-worker/"
