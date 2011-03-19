@@ -11,9 +11,14 @@ The [PINF JavaScript Loader](https://github.com/pinf/loader-js) is used to provi
 
 **NOTE:** It is assumed you have the _PINF JavaScript Loader_ mapped to the `commonjs` command are are using the `node` platform by default as explained [here](https://github.com/pinf/loader-js/blob/master/docs/Setup.md).
 
+Demo
+====
 
-Demo / Development
-==================
+    commonjs -v https://github.com/cadorn/ace-extjs
+
+
+Development
+===========
 
     git clone git://github.com/cadorn/ace-extjs.git
     cd ace-extjs
