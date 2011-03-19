@@ -12,15 +12,13 @@
         "sencha.com/products/extjs3": {
             "locator": {
                 "archive": "http://extjs.cachefly.net/ext-3.3.1.zip",
-                "resource": true,
-                "path": "ext-3.3.1"
+                "resource": true
             }
         },
         "sencha.com/products/extjs4": {
             "locator": {
                 "archive": "http://dev.sencha.com/deploy/ext-4.0-pr3.zip",
-                "resource": true,
-                "path": "ext-4.0-pr3"
+                "resource": true
             }
         },
         "nodejs.org": {
