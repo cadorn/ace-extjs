@@ -10,8 +10,18 @@
     <script type="text/javascript" src="/extjs3/adapter/ext/ext-base-debug.js"></script>
     <script type="text/javascript" src="/extjs3/ext-all-debug.js"></script>
 
-    <script src="/extjs3-ace/Component.js" type="text/javascript"></script>
-    <script>
+    <script type="text/javascript">
+        var url = "/extjs3-ace/Component.js";
+        if (/^\?\.*?build=true/.test(document.location.search))
+        {
+            url = "/build" + url;
+            bravojs = {
+                url: window.location.protocol + '//' + window.location.host + '/build/extjs3-ace/Component.js'
+            };
+        }
+        document.write('<script type="text/javascript" src="' + url + '"><' + '/script>');
+    </script>
+    <script type="text/javascript">
 
 Ext.onReady(function()
 {

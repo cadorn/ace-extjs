@@ -30,12 +30,20 @@
             },
             "descriptor": {
                 "uid": "https://github.com/ajaxorg/ace/",
+                "main": "",
                 "directories": {
                     "lib": "lib/ace"
                 },
                 "contexts": {
                     "top": {
-                        "/lib/ace": {
+                        "/": {
+                            "include": {
+                                "/lib/ace/range": {},
+                                "/lib/ace/tokenizer": {},
+                                "/lib/ace/mode/text": {},
+                                "/lib/ace/mode/matching_brace_outdent": {},
+                                "/lib/ace/mode/doc_comment_highlight_rules": {}
+                            },
                             "load": {
                                 "/lib/ace/mode/*": {},
                                 "/lib/ace/theme/*": {}

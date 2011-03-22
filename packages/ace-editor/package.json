@@ -10,7 +10,8 @@
                 "include": {
                     "github.com/ajaxorg/pilot/@/lib/pilot/index": {},
                     "github.com/ajaxorg/ace/@/lib/ace/defaults": {},
-                    "github.com/ajaxorg/cockpit/@/lib/cockpit/index": {}
+                    "github.com/ajaxorg/cockpit/@/lib/cockpit/index": {},
+                    "github.com/ajaxorg/ace/": {}
                 },
                 "load": {
                     "github.com/ajaxorg/ace/": {}

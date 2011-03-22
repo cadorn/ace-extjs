@@ -1,7 +1,7 @@
 ACE Editor as ExtJS Component
 =============================
 
-Status: dev
+Status: alpha
 
 This project packages the [ACE Editor](http://ace.ajax.org/) as an [ExtJS](http://www.sencha.com/products/extjs/) component.
 
@@ -30,16 +30,43 @@ TODO
   * Toolbar for editor component
   * Footer for editor component (line wrapping, caret position, read only, charset, ...)
   * Persist editor styling to survive reload
-  * Document API
+  * Better API Docs
   * ACE Command-line support
   * ExtJS 4 support/demo (__cadorn__)
-  * Bundeling for production loading (__cadorn__)
+
+
+Production
+==========
+
+When using this component in production a build containing static files only should be used.
+
+Assuming `Development` setup (see above).
+
+    commonjs --script build ./
+
+This will bundle the component and store static files in [./build/](https://github.com/cadorn/ace-extjs/tree/master/build).
+
+To use on a page:
+
+    // TODO: Include ExtJS CSS and JS files
+    <script type="text/javascript">
+        bravojs = {
+            url: window.location.protocol + "//" + window.location.host + "/.../extjs3-ace/Component.js"
+        };
+        document.write('<script type="text/javascript" src="' + bravojs.url + '"><' + '/script>');
+    </script>
+
+**NOTE:** The `bravojs.url` must be set to the same URL as used for the `SCRIPT` tag.
+
+See [./www/extjs3-ace/index.html](https://github.com/cadorn/ace-extjs/blob/master/www/extjs3-ace/index.html) for example.
 
 
 API
 ===
 
-_TODO_
+See implementation: [./packages/extjs3-ace/lib/component.js](https://github.com/cadorn/ace-extjs/blob/master/packages/extjs3-ace/lib/component.js)
+
+Usage example: [./www/extjs3-ace/index.html](https://github.com/cadorn/ace-extjs/blob/master/www/extjs3-ace/index.html)
 
 
 Support & Feedback

@@ -3,7 +3,13 @@
     "engine": [
         "node"
     ],
-    "main": "project.js",
+    "main": "lib/project.js",
+    "scripts": {
+        "build": {
+            "location": "./",
+            "module": "/lib/build.js"
+        }
+    },
     "mappings": {
         "nodejs": {
             "id": "nodejs.org"
