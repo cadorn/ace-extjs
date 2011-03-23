@@ -32,7 +32,6 @@ TODO
   * Persist editor styling to survive reload
   * Better API Docs
   * ACE Command-line support
-  * ExtJS 4 support/demo (__cadorn__)
 
 
 Production
