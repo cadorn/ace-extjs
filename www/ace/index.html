@@ -7,6 +7,17 @@
     <title>Editor</title>
     <meta name="author" content="Fabian Jakobs">
     <link rel="stylesheet" href="styles.css" type="text/css" media="screen" charset="utf-8">
+    <script type="text/javascript">
+        var url = "/ace/AceEditor.js";
+        if (/^\?\.*?build=true/.test(document.location.search))
+        {
+            url = "/build" + url;
+            bravojs = {
+                url: window.location.protocol + '//' + window.location.host + '/build/ace/AceEditor.js'
+            };
+        }
+        document.write('<script type="text/javascript" src="' + url + '"><' + '/script>');
+    </script>
 </head>
 <body>
     <table id="controls">
@@ -446,11 +457,11 @@ bg. Blockquote!
 
   <input id="cockpitInput" type="text"/>
 
-  <script src="/ace/AceEditor.js" type="text/javascript"></script>
-  <script>
+  <script type="text/javascript">
     bravojs.module.load({
         "id": "github.com/cadorn/ace-extjs/packages/ace-editor/"
-    }, function(id) {
+    }, function(id)
+    {
         require(id).launch("demo");
     });
   </script>
