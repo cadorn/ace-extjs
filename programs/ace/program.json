@@ -1,4 +1,7 @@
 {
+    "extends": {
+        "location": "../../program.packages.json"
+    },
     "boot": "github.com/cadorn/ace-extjs/packages/ace-editor/",
     "contexts": {
         "top": {
@@ -10,9 +13,6 @@
     },
     "packages": {
         "github.com/cadorn/ace-extjs/packages/ace-editor/": {
-            "locator": {
-                "location": "../../packages/ace-editor"
-            },
             "descriptor": {
                 "contexts": {
                     "top": {
@@ -21,81 +21,6 @@
                                 "github.com/cadorn/ace-extjs/packages/ace-editor/@/demo": {}
                             }
                         }
-                    }
-                }
-            }
-        },
-        "github.com/cadorn/ace-extjs/packages/ace-worker/": {
-            "locator": {
-                "location": "../../packages/ace-worker"
-            }
-        },
-        "github.com/ajaxorg/ace/": {
-            "locator": {
-                "archive": "https://github.com/ajaxorg/ace/zipball/master"
-            },
-            "descriptor": {
-                "uid": "https://github.com/ajaxorg/ace/",
-                "directories": {
-                    "lib": "lib/ace"
-                },
-                "contexts": {
-                    "top": {
-                        "/lib/ace": {
-                            "load": {
-                                "/lib/ace/mode/*": {},
-                                "/lib/ace/theme/*": {}
-                            }
-                        }
-                    }
-                },
-                "modules": {
-                    "/lib/ace/worker/worker_client": {
-                        "id": "github.com/cadorn/ace-extjs/packages/ace-editor/",
-                        "module": "modules/ace/worker/worker_client"
-                    }
-                },
-                "mappings": {
-                    "ace": {
-                        "id": "github.com/ajaxorg/ace/"
-                    },
-                    "pilot": {
-                        "id": "github.com/ajaxorg/pilot/"
-                    }
-                }
-            }
-        },
-        "github.com/ajaxorg/cockpit/": {
-            "locator": {
-                "archive": "https://github.com/ajaxorg/cockpit/zipball/master"
-            },
-            "descriptor": {
-                "uid": "https://github.com/ajaxorg/cockpit/",
-                "directories": {
-                    "lib": "lib/cockpit"
-                },
-                "mappings": {
-                    "cockpit": {
-                        "id": "github.com/ajaxorg/cockpit/"
-                    },
-                    "pilot": {
-                        "id": "github.com/ajaxorg/pilot/"
-                    }
-                }
-            }
-        },
-        "github.com/ajaxorg/pilot/": {
-            "locator": {
-                "archive": "https://github.com/ajaxorg/pilot/zipball/master"
-            },
-            "descriptor": {
-                "uid": "https://github.com/ajaxorg/pilot/",
-                "directories": {
-                    "lib": "lib/pilot"
-                },
-                "mappings": {
-                    "pilot": {
-                        "id": "github.com/ajaxorg/pilot/"
                     }
                 }
             }
