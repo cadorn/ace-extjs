@@ -9,6 +9,8 @@ module.declare(["extjs-ace/component"], function(require, exports, module)
         
         var component = COMPONENT.getComponent();
 
-        Ext.ux.AceEditor = Ext.extend(Ext.BoxComponent, component);
+        component.extend = "Ext.AbstractComponent";
+
+        Ext.define("Ext.ux.AceEditor", component);
     }
 });

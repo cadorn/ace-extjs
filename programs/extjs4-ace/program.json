@@ -1,0 +1,14 @@
+{
+    "extends": {
+        "location": "../../program.packages.json"
+    },
+    "boot": "github.com/cadorn/ace-extjs/packages/extjs4-ace/",
+    "contexts": {
+        "top": {
+            "github.com/cadorn/ace-extjs/packages/extjs4-ace/": {
+            },
+            "github.com/cadorn/ace-extjs/packages/ace-worker/@/worker": {
+            }
+        }
+    }
+}

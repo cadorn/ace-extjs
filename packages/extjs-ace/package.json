@@ -1,19 +1,19 @@
 {
-    "uid": "http://github.com/cadorn/ace-extjs/packages/extjs3-ace/",
-    "name": "extjs3-ace",
-    "main": "lib/component.js",
+    "uid": "http://github.com/cadorn/ace-extjs/packages/extjs-ace/",
+    "name": "extjs-ace",
+    "main": "",
     "contexts": {
         "top": {
-            "/lib/component": {
+            "/": {
                 "load": {
-                    "github.com/cadorn/ace-extjs/packages/extjs-ace/": {}
+                    "github.com/cadorn/ace-extjs/packages/ace-editor/": {}
                 }
             }
         }
     },
     "mappings": {
-        "extjs-ace": {
-            "id": "github.com/cadorn/ace-extjs/packages/extjs-ace/"
+        "editor": {
+            "id": "github.com/cadorn/ace-extjs/packages/ace-editor/"
         },
         "ace": {
             "id": "github.com/ajaxorg/ace/"

@@ -1,6 +1,6 @@
 {
-    "uid": "http://github.com/cadorn/ace-extjs/packages/extjs3-ace/",
-    "name": "extjs3-ace",
+    "uid": "http://github.com/cadorn/ace-extjs/packages/extjs4-ace/",
+    "name": "extjs4-ace",
     "main": "lib/component.js",
     "contexts": {
         "top": {

@@ -1,7 +1,7 @@
-ExtJS 3 ACE Editor Component
+ExtJS 4 ACE Editor Component
 ============================
 
-A component to wrap the ACE Editor for ExtJS 3.
+A component to wrap the ACE Editor for ExtJS 4.
 
 Notes
 =====

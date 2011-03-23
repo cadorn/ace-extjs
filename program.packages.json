@@ -5,6 +5,16 @@
                 "location": "./packages/extjs3-ace"
             }
         },
+        "github.com/cadorn/ace-extjs/packages/extjs4-ace/": {
+            "locator": {
+                "location": "./packages/extjs4-ace"
+            }
+        },
+        "github.com/cadorn/ace-extjs/packages/extjs-ace/": {
+            "locator": {
+                "location": "./packages/extjs-ace"
+            }
+        },
         "github.com/cadorn/ace-extjs/packages/ace-editor/": {
             "locator": {
                 "location": "./packages/ace-editor"
