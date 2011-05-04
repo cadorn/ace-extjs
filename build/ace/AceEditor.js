@@ -4,8 +4,10 @@ bravojs.url = window.location.protocol + '//' + window.location.host + '/ace/Ace
 } else if(typeof importScripts != 'undefined' && typeof bravojs.url == 'undefined') {
 bravojs.url = location;
 }
-bravojs.mainModuleDir = /^https?:\/(.*?)\.js$/.exec(bravojs.url)[1];
+bravojs.mainModuleDir = /^(https?|resource):\/(.*?)\.js$/.exec(bravojs.url)[2];
 bravojs.mainContext = bravojs.mainModuleDir + '/a3d9ddf257e98144c883cd2dbc03ab62243dbc09';
+bravojs.platform = 'browser';
+function dump() { (bravojs.dump || bravojs.print).apply(null, arguments); };
 
 // -- kriskowal Kris Kowal Copyright (C) 2009-2010 MIT License
 // -- tlrobinson Tom Robinson
@@ -963,22 +965,25 @@ bravojs.normalizeDependencyArray = function bravojs_normalizeDependencyArray(dep
 
   for (i=0; i < dependencies.length; i++)
   {
-    switch(typeof dependencies[i])
+    if (dependencies[i])
     {
-      case "object":
-        for (label in dependencies[i])
-        {
-          if (dependencies[i].hasOwnProperty(label))
-            addNormal(dependencies[i][label]);
-        }
-        break;
+      switch(typeof dependencies[i])
+      {
+        case "object":
+          for (label in dependencies[i])
+          {
+            if (dependencies[i].hasOwnProperty(label))
+              addNormal(dependencies[i][label]);
+          }
+          break;
 
-      case "string":
-        addNormal(dependencies[i]);
-        break;
+        case "string":
+          addNormal(dependencies[i]);
+          break;
 
-      default:
-        throw new Error("Invalid dependency array value at position " + (i+1));
+        default:
+          throw new Error("Invalid dependency array value at position " + (i+1));
+      }
     }
   }
 
@@ -1106,6 +1111,10 @@ bravojs.requireModule = function bravojs_requireModule(parentModuleDir, moduleId
       return bravojs.requireMemo[id];
     return bravojs.requireMemo[id] = exports;
   }
+
+  /* If id is false the module is not available */
+  if (id === false)
+    return null;
 
   if (!bravojs.requireMemo[id] && bravojs.pendingModuleDeclarations[id])
     bravojs.initializeModule(id);
@@ -1801,6 +1810,11 @@ Plugin.prototype.init = function()
 
         try {
             var ret = bravojs.callPlugins("normalizeModuleIdentifier", [moduleIdentifier, relativeModuleDir, descriptor, this]);
+            
+            // happens if mapping is ignored
+            if (ret === false)
+                return false;
+            
             if (typeof ret != "undefined")
                 moduleIdentifier = ret;
         }
@@ -1835,12 +1849,14 @@ Plugin.prototype.init = function()
         /* Only add extra module properties if context represents a package (i.e. not default '_' context) */
         if (context.id == "_")
             return;
-    
+
         /* If context supplies a UID use it over the path-based ID for the package ID */
         this.pkgId = context.id;
     
         /* Normalized mappings are simply a map where labels point to package IDs */
         this.mappings = context.getNormalizedMappings();
+
+        this.hashId = calcMD5(this.id);
     }
 
     // We need to reset bravojs to use the Context object from above (but keep registered plugins)
@@ -2057,6 +2073,8 @@ Plugin.prototype.normalizeModuleIdentifier = function(moduleIdentifier, relative
 
     function finalNormalization(moduleIdentifier)
     {
+        moduleIdentifier = moduleIdentifier.replace(/{platform}/g, bravojs.require.platform);
+
         var parts = moduleIdentifier.replace(/\.js$/, "").split("@/");
 
         if (parts.length == 1)
@@ -2190,6 +2208,9 @@ Plugin.prototype.normalizeModuleIdentifier = function(moduleIdentifier, relative
         var normalizedLocator = this.normalizeLocator(context.descriptor.mappings[parts[0]], context),
             mappedContextId;
 
+        if (normalizedLocator.available === false)
+            return false;
+
         if (typeof normalizedLocator.provider != "undefined")
             mappedContextId = normalizedLocator.id;
         else
@@ -2226,6 +2247,185 @@ if (typeof exports != "undefined")
     // On Server
     exports.Plugin = Plugin;
 }
+
+
+var calcMD5 = function() {
+/*
+ * A JavaScript implementation of the RSA Data Security, Inc. MD5 Message
+ * Digest Algorithm, as defined in RFC 1321.
+ * Copyright (C) Paul Johnston 1999 - 2000.
+ * Updated by Greg Holt 2000 - 2001.
+ * See http://pajhome.org.uk/site/legal.html for details.
+ */
+
+/*
+ * Convert a 32-bit number to a hex string with ls-byte first
+ */
+var hex_chr = "0123456789abcdef";
+function rhex(num)
+{
+  str = "";
+  for(j = 0; j <= 3; j++)
+    str += hex_chr.charAt((num >> (j * 8 + 4)) & 0x0F) +
+           hex_chr.charAt((num >> (j * 8)) & 0x0F);
+  return str;
+}
+
+/*
+ * Convert a string to a sequence of 16-word blocks, stored as an array.
+ * Append padding bits and the length, as described in the MD5 standard.
+ */
+function str2blks_MD5(str)
+{
+  nblk = ((str.length + 8) >> 6) + 1;
+  blks = new Array(nblk * 16);
+  for(i = 0; i < nblk * 16; i++) blks[i] = 0;
+  for(i = 0; i < str.length; i++)
+    blks[i >> 2] |= str.charCodeAt(i) << ((i % 4) * 8);
+  blks[i >> 2] |= 0x80 << ((i % 4) * 8);
+  blks[nblk * 16 - 2] = str.length * 8;
+  return blks;
+}
+
+/*
+ * Add integers, wrapping at 2^32. This uses 16-bit operations internally 
+ * to work around bugs in some JS interpreters.
+ */
+function add(x, y)
+{
+  var lsw = (x & 0xFFFF) + (y & 0xFFFF);
+  var msw = (x >> 16) + (y >> 16) + (lsw >> 16);
+  return (msw << 16) | (lsw & 0xFFFF);
+}
+
+/*
+ * Bitwise rotate a 32-bit number to the left
+ */
+function rol(num, cnt)
+{
+  return (num << cnt) | (num >>> (32 - cnt));
+}
+
+/*
+ * These functions implement the basic operation for each round of the
+ * algorithm.
+ */
+function cmn(q, a, b, x, s, t)
+{
+  return add(rol(add(add(a, q), add(x, t)), s), b);
+}
+function ff(a, b, c, d, x, s, t)
+{
+  return cmn((b & c) | ((~b) & d), a, b, x, s, t);
+}
+function gg(a, b, c, d, x, s, t)
+{
+  return cmn((b & d) | (c & (~d)), a, b, x, s, t);
+}
+function hh(a, b, c, d, x, s, t)
+{
+  return cmn(b ^ c ^ d, a, b, x, s, t);
+}
+function ii(a, b, c, d, x, s, t)
+{
+  return cmn(c ^ (b | (~d)), a, b, x, s, t);
+}
+
+/*
+ * Take a string and return the hex representation of its MD5.
+ */
+return function calcMD5(str)
+{
+  x = str2blks_MD5(str);
+  a =  1732584193;
+  b = -271733879;
+  c = -1732584194;
+  d =  271733878;
+
+  for(i = 0; i < x.length; i += 16)
+  {
+    olda = a;
+    oldb = b;
+    oldc = c;
+    oldd = d;
+
+    a = ff(a, b, c, d, x[i+ 0], 7 , -680876936);
+    d = ff(d, a, b, c, x[i+ 1], 12, -389564586);
+    c = ff(c, d, a, b, x[i+ 2], 17,  606105819);
+    b = ff(b, c, d, a, x[i+ 3], 22, -1044525330);
+    a = ff(a, b, c, d, x[i+ 4], 7 , -176418897);
+    d = ff(d, a, b, c, x[i+ 5], 12,  1200080426);
+    c = ff(c, d, a, b, x[i+ 6], 17, -1473231341);
+    b = ff(b, c, d, a, x[i+ 7], 22, -45705983);
+    a = ff(a, b, c, d, x[i+ 8], 7 ,  1770035416);
+    d = ff(d, a, b, c, x[i+ 9], 12, -1958414417);
+    c = ff(c, d, a, b, x[i+10], 17, -42063);
+    b = ff(b, c, d, a, x[i+11], 22, -1990404162);
+    a = ff(a, b, c, d, x[i+12], 7 ,  1804603682);
+    d = ff(d, a, b, c, x[i+13], 12, -40341101);
+    c = ff(c, d, a, b, x[i+14], 17, -1502002290);
+    b = ff(b, c, d, a, x[i+15], 22,  1236535329);    
+
+    a = gg(a, b, c, d, x[i+ 1], 5 , -165796510);
+    d = gg(d, a, b, c, x[i+ 6], 9 , -1069501632);
+    c = gg(c, d, a, b, x[i+11], 14,  643717713);
+    b = gg(b, c, d, a, x[i+ 0], 20, -373897302);
+    a = gg(a, b, c, d, x[i+ 5], 5 , -701558691);
+    d = gg(d, a, b, c, x[i+10], 9 ,  38016083);
+    c = gg(c, d, a, b, x[i+15], 14, -660478335);
+    b = gg(b, c, d, a, x[i+ 4], 20, -405537848);
+    a = gg(a, b, c, d, x[i+ 9], 5 ,  568446438);
+    d = gg(d, a, b, c, x[i+14], 9 , -1019803690);
+    c = gg(c, d, a, b, x[i+ 3], 14, -187363961);
+    b = gg(b, c, d, a, x[i+ 8], 20,  1163531501);
+    a = gg(a, b, c, d, x[i+13], 5 , -1444681467);
+    d = gg(d, a, b, c, x[i+ 2], 9 , -51403784);
+    c = gg(c, d, a, b, x[i+ 7], 14,  1735328473);
+    b = gg(b, c, d, a, x[i+12], 20, -1926607734);
+    
+    a = hh(a, b, c, d, x[i+ 5], 4 , -378558);
+    d = hh(d, a, b, c, x[i+ 8], 11, -2022574463);
+    c = hh(c, d, a, b, x[i+11], 16,  1839030562);
+    b = hh(b, c, d, a, x[i+14], 23, -35309556);
+    a = hh(a, b, c, d, x[i+ 1], 4 , -1530992060);
+    d = hh(d, a, b, c, x[i+ 4], 11,  1272893353);
+    c = hh(c, d, a, b, x[i+ 7], 16, -155497632);
+    b = hh(b, c, d, a, x[i+10], 23, -1094730640);
+    a = hh(a, b, c, d, x[i+13], 4 ,  681279174);
+    d = hh(d, a, b, c, x[i+ 0], 11, -358537222);
+    c = hh(c, d, a, b, x[i+ 3], 16, -722521979);
+    b = hh(b, c, d, a, x[i+ 6], 23,  76029189);
+    a = hh(a, b, c, d, x[i+ 9], 4 , -640364487);
+    d = hh(d, a, b, c, x[i+12], 11, -421815835);
+    c = hh(c, d, a, b, x[i+15], 16,  530742520);
+    b = hh(b, c, d, a, x[i+ 2], 23, -995338651);
+
+    a = ii(a, b, c, d, x[i+ 0], 6 , -198630844);
+    d = ii(d, a, b, c, x[i+ 7], 10,  1126891415);
+    c = ii(c, d, a, b, x[i+14], 15, -1416354905);
+    b = ii(b, c, d, a, x[i+ 5], 21, -57434055);
+    a = ii(a, b, c, d, x[i+12], 6 ,  1700485571);
+    d = ii(d, a, b, c, x[i+ 3], 10, -1894986606);
+    c = ii(c, d, a, b, x[i+10], 15, -1051523);
+    b = ii(b, c, d, a, x[i+ 1], 21, -2054922799);
+    a = ii(a, b, c, d, x[i+ 8], 6 ,  1873313359);
+    d = ii(d, a, b, c, x[i+15], 10, -30611744);
+    c = ii(c, d, a, b, x[i+ 6], 15, -1560198380);
+    b = ii(b, c, d, a, x[i+13], 21,  1309151649);
+    a = ii(a, b, c, d, x[i+ 4], 6 , -145523070);
+    d = ii(d, a, b, c, x[i+11], 10, -1120210379);
+    c = ii(c, d, a, b, x[i+ 2], 15,  718787259);
+    b = ii(b, c, d, a, x[i+ 9], 21, -343485551);
+
+    a = add(a, olda);
+    b = add(b, oldb);
+    c = add(c, oldc);
+    d = add(d, oldd);
+  }
+  return rhex(a) + rhex(b) + rhex(c) + rhex(d);
+}
+
+}();
 
 })();
 
@@ -2367,7 +2567,7 @@ bravojs.module.constructor.prototype.load = function packages_loader_load(module
 
 })();
 
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/a3d9ddf257e98144c883cd2dbc03ab62243dbc09@/package.json'), [], function() { return {"uid":"http://github.com/cadorn/ace-extjs/packages/ace-editor/","main":"main.js","directories":{"lib":""},"contexts":{"top":{"/main":{"include":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/cadorn/ace-extjs/packages/ace-editor/@/demo"],"load":{"github.com/ajaxorg/ace/":{"parent":"github.com/cadorn/ace-extjs/packages/ace-editor/","include":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"load":{"github.com/ajaxorg/ace/@/lib/ace/mode/*":{"parent":"github.com/ajaxorg/ace/@/","parents":{"github.com/ajaxorg/ace/@/":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/ace-editor/":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/cadorn/ace-extjs/packages/ace-editor/@/demo"]}},"github.com/ajaxorg/ace/@/lib/ace/theme/*":{"parent":"github.com/ajaxorg/ace/@/","parents":{"github.com/ajaxorg/ace/@/":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/ace-editor/":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/cadorn/ace-extjs/packages/ace-editor/@/demo"]}}},"id":"github.com/ajaxorg/ace/@/","ignore":true,"parents":{"github.com/cadorn/ace-extjs/packages/ace-editor/":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/cadorn/ace-extjs/packages/ace-editor/@/demo"]}}},"id":"github.com/cadorn/ace-extjs/packages/ace-editor/@/main","parents":{}}}},"mappings":{"worker":{"location":"" + bravojs.mainModuleDir + "/b339f0b799f23466a9fb3ac92af4cb7e572604a6"},"ace":{"location":"" + bravojs.mainModuleDir + "/be838c6d9a6db05254ca57f11ea5029390a2997c"},"cockpit":{"location":"" + bravojs.mainModuleDir + "/539c1b401b1ed3c4feb4e16c715a1e9fd4289992"},"pilot":{"location":"" + bravojs.mainModuleDir + "/ebd88462734df1207a34b544b42917b1f1f52813"}}}; });
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/a3d9ddf257e98144c883cd2dbc03ab62243dbc09@/package.json'), [], function() { return {"uid":"http://github.com/cadorn/ace-extjs/packages/ace-editor/","main":"main.js","directories":{"lib":""},"contexts":{"top":{"/main":{"include":{"github.com/ajaxorg/pilot/@/lib/pilot/index":{},"github.com/ajaxorg/ace/@/lib/ace/defaults":{},"github.com/ajaxorg/cockpit/@/lib/cockpit/index":{},"github.com/ajaxorg/ace/":{},"github.com/cadorn/ace-extjs/packages/ace-editor/@/demo":{}}}}},"mappings":{"worker":{"location":"" + bravojs.mainModuleDir + "/b339f0b799f23466a9fb3ac92af4cb7e572604a6"},"ace":{"location":"" + bravojs.mainModuleDir + "/87749d9714f1925e26afa48a0d592eaa39403858"},"cockpit":{"location":"" + bravojs.mainModuleDir + "/b5bd9e5093176e86aa6f6c4d581342361d8c923f"},"pilot":{"location":"" + bravojs.mainModuleDir + "/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c"}}}; });
 require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/a3d9ddf257e98144c883cd2dbc03ab62243dbc09@/main'), ['pilot/fixoldbrowsers','pilot/plugin_manager','pilot/settings','pilot/environment','pilot/canon','pilot/event','ace/editor','ace/virtual_renderer','ace/edit_session','ace/undomanager','ace/theme/textmate','ace/mode/text'], function (require, exports, module)
 {
     var env,
@@ -2424,10 +2624,22 @@ require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/a3d9ddf257e98144c883c
             launchCallback = callback;
     }
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/package.json'), [], function() { return {"name":"pilot","description":"Pilot is a small library used in the creation of Ace editor.","version":"0.1.1","homepage":"http://github.com/ajaxorg/pilot","engines":{"node":">= 0.1.102","teleport":">=0.2.0"},"author":"Fabian Jakobs <fabian@ajax.org>","main":"lib/pilot/index.js","repository":{"type":"git","url":"http://github.com/ajaxorg/ace.git"},"overlay":{"teleport":{"directories":{"lib":"lib/pilot"}}},"licenses":[{"type":"LGPLv3","url":"http://www.gnu.org/licenses/lgpl-3.0.txt"}],"uid":"https://github.com/ajaxorg/pilot/","directories":{"lib":"lib/pilot"},"mappings":{"pilot":{"location":"" + bravojs.mainModuleDir + "/ebd88462734df1207a34b544b42917b1f1f52813"}}}; });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/package.json'), [], function() { return {"name":"ace","description":"Ajax.org Code Editor is a full featured source code highlighting editor that powers the Cloud9 IDE","version":"0.1.6","homepage":"http://github.com/ajaxorg/ace","engines":{"node":">= 0.2.0"},"author":"Fabian Jakobs <fabian@ajax.org>","main":"","repository":{"type":"git","url":"http://github.com/ajaxorg/ace.git"},"overlay":{"teleport":{"directories":{"lib":"lib/ace","dependencies":{"cockpit":">=0.1.1","pilot":">=0.1.1"}}}},"dependencies":{"pilot":">=0.1.1","cockpit":">=0.1.1","teleport":">=0.2.6","asyncjs":">=0.0.2","jsdom":">=0.1.23","htmlparser":">=1.7.2","dryice":">=0.2.2","mime":">=1.2.1"},"licenses":[{"type":"MPL","url":"http://www.mozilla.org/MPL/"},{"type":"GPL","url":"http://www.gnu.org/licenses/gpl.html"},{"type":"LGPL","url":"http://www.gnu.org/licenses/lgpl.html"}],"uid":"https://github.com/ajaxorg/ace/","directories":{"lib":"lib/ace"},"contexts":{"top":{"/":{"include":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"load":{"github.com/ajaxorg/ace/@/lib/ace/mode/*":{"parent":"github.com/ajaxorg/ace/@/","parents":{"github.com/ajaxorg/ace/@/":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/ace-editor/":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/cadorn/ace-extjs/packages/ace-editor/@/demo"]}},"github.com/ajaxorg/ace/@/lib/ace/theme/*":{"parent":"github.com/ajaxorg/ace/@/","parents":{"github.com/ajaxorg/ace/@/":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/ace-editor/":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/cadorn/ace-extjs/packages/ace-editor/@/demo"]}}},"id":"github.com/ajaxorg/ace/@/","ignore":true,"parent":"github.com/cadorn/ace-extjs/packages/ace-editor/@/main"}}},"modules":{"/lib/ace/worker/worker_client":{"module":"modules/ace/worker/worker_client","location":"" + bravojs.mainModuleDir + "/a3d9ddf257e98144c883cd2dbc03ab62243dbc09","descriptor":{"contexts":{"top":{"/main":{"include":{"github.com/cadorn/ace-extjs/packages/ace-editor/@/demo":{"parent":"github.com/cadorn/ace-extjs/packages/ace-editor/"}}}}}}}},"mappings":{"ace":{"location":"" + bravojs.mainModuleDir + "/be838c6d9a6db05254ca57f11ea5029390a2997c"},"pilot":{"location":"" + bravojs.mainModuleDir + "/ebd88462734df1207a34b544b42917b1f1f52813"}}}; });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/fixoldbrowsers'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/package.json'), [], function() { return {"name":"pilot","description":"Pilot is a small library used in the creation of Ace editor.","version":"0.1.1","homepage":"http://github.com/ajaxorg/pilot","engines":{"node":">= 0.1.102","teleport":">=0.2.0"},"author":"Fabian Jakobs <fabian@ajax.org>","main":"lib/pilot/index.js","repository":{"type":"git","url":"http://github.com/ajaxorg/ace.git"},"overlay":{"teleport":{"directories":{"lib":"lib/pilot"}}},"licenses":[{"type":"LGPLv3","url":"http://www.gnu.org/licenses/lgpl-3.0.txt"}],"uid":"https://github.com/ajaxorg/pilot/","directories":{"lib":"lib/pilot"},"mappings":{"pilot":{"location":"" + bravojs.mainModuleDir + "/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c"}}}; });
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/package.json'), [], function() { return {"name":"ace","description":"Ajax.org Code Editor is a full featured source code highlighting editor that powers the Cloud9 IDE","version":"0.1.6","homepage":"http://github.com/ajaxorg/ace","engines":{"node":">= 0.2.0"},"author":"Fabian Jakobs <fabian@ajax.org>","main":"","repository":{"type":"git","url":"http://github.com/ajaxorg/ace.git"},"overlay":{"teleport":{"directories":{"lib":"lib/ace","dependencies":{"cockpit":">=0.1.1","pilot":">=0.1.1"}}}},"dependencies":[{"id":"github.com/cadorn/ace-extjs/packages/ace-editor/","descriptor":{"directories":{"lib":"modules"}},"location":"/Users/cadorn/pinf/workspaces/github.com/cadorn/ace-extjs/packages/ace-editor"}],"licenses":[{"type":"MPL","url":"http://www.mozilla.org/MPL/"},{"type":"GPL","url":"http://www.gnu.org/licenses/gpl.html"},{"type":"LGPL","url":"http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html"}],"directories":{"lib":"lib/ace"},"uid":"https://github.com/ajaxorg/ace/","contexts":{"top":{"/":{"include":{"/lib/ace/range":{},"/lib/ace/tokenizer":{},"/lib/ace/mode/text":{},"/lib/ace/mode/matching_brace_outdent":{},"/lib/ace/mode/doc_comment_highlight_rules":{}},"load":{"/lib/ace/mode/*":{},"/lib/ace/theme/*":{}}}}},"modules":{"/lib/ace/worker/worker_client":{"module":"modules/ace/worker/worker_client","location":"" + bravojs.mainModuleDir + "/a3d9ddf257e98144c883cd2dbc03ab62243dbc09","descriptor":{"contexts":{"top":{"/main":{"include":{"github.com/cadorn/ace-extjs/packages/ace-editor/@/demo":{}}}}}}}},"mappings":{"ace":{"location":"" + bravojs.mainModuleDir + "/87749d9714f1925e26afa48a0d592eaa39403858"},"pilot":{"location":"" + bravojs.mainModuleDir + "/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c"},"asyncjs":{"available":false}}}; });
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/fixoldbrowsers'), [], function (require, exports, module) {
+// vim:set ts=4 sts=4 sw=4 st:
+// -- kriskowal Kris Kowal Copyright (C) 2009-2010 MIT License
+// -- tlrobinson Tom Robinson Copyright (C) 2009-2010 MIT License (Narwhal Project)
+// -- dantman Daniel Friesen Copyright(C) 2010 XXX No License Specified
+// -- fschaefer Florian Schäfer Copyright (C) 2010 MIT License
+// -- Irakli Gozalishvili Copyright (C) 2010 MIT License
 
+/*!
+    Copyright (c) 2009, 280 North Inc. http://280north.com/
+    MIT License. http://github.com/280north/narwhal/blob/master/README.md
+*/
+
+(typeof define === "function" ? define : function($) { $(); })(function(require, exports, module, undefined) {
 
 /**
  * Brings an environment as close to ECMAScript 5 compliance
@@ -2446,30 +2658,158 @@ require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b
  * numbered specification references and quotes herein were taken.  Updating
  * these references and quotes to reflect the new document would be a welcome
  * volunteer project.
- * 
+ *
  * @module
  */
 
 /*whatsupdoc*/
 
-// this is often accessed, so avoid multiple dereference costs universally
-var has = Object.prototype.hasOwnProperty;
+//
+// Function
+// ========
+//
+
+// ES-5 15.3.4.5
+// http://www.ecma-international.org/publications/files/drafts/tc39-2009-025.pdf
+
+if (!Function.prototype.bind) {
+    var slice = Array.prototype.slice;
+    Function.prototype.bind = function bind(that) { // .length is 1
+        // 1. Let Target be the this value.
+        var target = this;
+        // 2. If IsCallable(Target) is false, throw a TypeError exception.
+        // XXX this gets pretty close, for all intents and purposes, letting
+        // some duck-types slide
+        if (typeof target.apply !== "function" || typeof target.call !== "function")
+            return new TypeError();
+        // 3. Let A be a new (possibly empty) internal list of all of the
+        //   argument values provided after thisArg (arg1, arg2 etc), in order.
+        var args = slice.call(arguments);
+        // 4. Let F be a new native ECMAScript object.
+        // 9. Set the [[Prototype]] internal property of F to the standard
+        //   built-in Function prototype object as specified in 15.3.3.1.
+        // 10. Set the [[Call]] internal property of F as described in
+        //   15.3.4.5.1.
+        // 11. Set the [[Construct]] internal property of F as described in
+        //   15.3.4.5.2.
+        // 12. Set the [[HasInstance]] internal property of F as described in
+        //   15.3.4.5.3.
+        // 13. The [[Scope]] internal property of F is unused and need not
+        //   exist.
+        var bound = function bound() {
+
+            if (this instanceof bound) {
+                // 15.3.4.5.2 [[Construct]]
+                // When the [[Construct]] internal method of a function object,
+                // F that was created using the bind function is called with a
+                // list of arguments ExtraArgs the following steps are taken:
+                // 1. Let target be the value of F's [[TargetFunction]]
+                //   internal property.
+                // 2. If target has no [[Construct]] internal method, a
+                //   TypeError exception is thrown.
+                // 3. Let boundArgs be the value of F's [[BoundArgs]] internal
+                //   property.
+                // 4. Let args be a new list containing the same values as the
+                //   list boundArgs in the same order followed by the same
+                //   values as the list ExtraArgs in the same order.
+
+                var self = Object.create(target.prototype);
+                target.apply(self, args.concat(slice.call(arguments)));
+                return self;
+
+            } else {
+                // 15.3.4.5.1 [[Call]]
+                // When the [[Call]] internal method of a function object, F,
+                // which was created using the bind function is called with a
+                // this value and a list of arguments ExtraArgs the following
+                // steps are taken:
+                // 1. Let boundArgs be the value of F's [[BoundArgs]] internal
+                //   property.
+                // 2. Let boundThis be the value of F's [[BoundThis]] internal
+                //   property.
+                // 3. Let target be the value of F's [[TargetFunction]] internal
+                //   property.
+                // 4. Let args be a new list containing the same values as the list
+                //   boundArgs in the same order followed by the same values as
+                //   the list ExtraArgs in the same order. 5.  Return the
+                //   result of calling the [[Call]] internal method of target
+                //   providing boundThis as the this value and providing args
+                //   as the arguments.
+
+                // equiv: target.call(this, ...boundArgs, ...args)
+                return target.call.apply(
+                    target,
+                    args.concat(slice.call(arguments))
+                );
+
+            }
+
+        };
+        bound.length = (
+            // 14. If the [[Class]] internal property of Target is "Function", then
+            typeof target === "function" ?
+            // a. Let L be the length property of Target minus the length of A.
+            // b. Set the length own property of F to either 0 or L, whichever is larger.
+            Math.max(target.length - args.length, 0) :
+            // 15. Else set the length own property of F to 0.
+            0
+        )
+        // 16. The length own property of F is given attributes as specified in
+        //   15.3.5.1.
+        // TODO
+        // 17. Set the [[Extensible]] internal property of F to true.
+        // TODO
+        // 18. Call the [[DefineOwnProperty]] internal method of F with
+        //   arguments "caller", PropertyDescriptor {[[Value]]: null,
+        //   [[Writable]]: false, [[Enumerable]]: false, [[Configurable]]:
+        //   false}, and false.
+        // TODO
+        // 19. Call the [[DefineOwnProperty]] internal method of F with
+        //   arguments "arguments", PropertyDescriptor {[[Value]]: null,
+        //   [[Writable]]: false, [[Enumerable]]: false, [[Configurable]]:
+        //   false}, and false.
+        // TODO
+        // NOTE Function objects created using Function.prototype.bind do not
+        // have a prototype property.
+        // XXX can't delete it in pure-js.
+        return bound;
+    };
+}
+
+// Shortcut to an often accessed properties, in order to avoid multiple
+// dereference that costs universally.
+// _Please note: Shortcuts are defined after `Function.prototype.bind` as we
+// us it in defining shortcuts.
+var call = Function.prototype.call;
+var prototypeOfArray = Array.prototype;
+var prototypeOfObject = Object.prototype;
+var owns = call.bind(prototypeOfObject.hasOwnProperty);
+
+var defineGetter, defineSetter, lookupGetter, lookupSetter, supportsAccessors;
+// If JS engine supports accessors creating shortcuts.
+if ((supportsAccessors = owns(prototypeOfObject, '__defineGetter__'))) {
+    defineGetter = call.bind(prototypeOfObject.__defineGetter__);
+    defineSetter = call.bind(prototypeOfObject.__defineSetter__);
+    lookupGetter = call.bind(prototypeOfObject.__lookupGetter__);
+    lookupSetter = call.bind(prototypeOfObject.__lookupSetter__);
+}
+
 
 //
 // Array
 // =====
 //
 
-// ES5 15.4.3.2 
+// ES5 15.4.3.2
 if (!Array.isArray) {
-    Array.isArray = function(obj) {
-        return Object.prototype.toString.call(obj) == "[object Array]";
+    Array.isArray = function isArray(obj) {
+        return Object.prototype.toString.call(obj) === "[object Array]";
     };
 }
 
 // ES5 15.4.4.18
 if (!Array.prototype.forEach) {
-    Array.prototype.forEach =  function(block, thisObject) {
+    Array.prototype.forEach =  function forEach(block, thisObject) {
         var len = +this.length;
         for (var i = 0; i < len; i++) {
             if (i in this) {
@@ -2482,9 +2822,9 @@ if (!Array.prototype.forEach) {
 // ES5 15.4.4.19
 // https://developer.mozilla.org/en/Core_JavaScript_1.5_Reference/Objects/Array/map
 if (!Array.prototype.map) {
-    Array.prototype.map = function(fun /*, thisp*/) {
+    Array.prototype.map = function map(fun /*, thisp*/) {
         var len = +this.length;
-        if (typeof fun != "function")
+        if (typeof fun !== "function")
           throw new TypeError();
 
         var res = new Array(len);
@@ -2500,7 +2840,7 @@ if (!Array.prototype.map) {
 
 // ES5 15.4.4.20
 if (!Array.prototype.filter) {
-    Array.prototype.filter = function (block /*, thisp */) {
+    Array.prototype.filter = function filter(block /*, thisp */) {
         var values = [];
         var thisp = arguments[1];
         for (var i = 0; i < this.length; i++)
@@ -2512,7 +2852,7 @@ if (!Array.prototype.filter) {
 
 // ES5 15.4.4.16
 if (!Array.prototype.every) {
-    Array.prototype.every = function (block /*, thisp */) {
+    Array.prototype.every = function every(block /*, thisp */) {
         var thisp = arguments[1];
         for (var i = 0; i < this.length; i++)
             if (!block.call(thisp, this[i]))
@@ -2523,7 +2863,7 @@ if (!Array.prototype.every) {
 
 // ES5 15.4.4.17
 if (!Array.prototype.some) {
-    Array.prototype.some = function (block /*, thisp */) {
+    Array.prototype.some = function some(block /*, thisp */) {
         var thisp = arguments[1];
         for (var i = 0; i < this.length; i++)
             if (block.call(thisp, this[i]))
@@ -2535,13 +2875,13 @@ if (!Array.prototype.some) {
 // ES5 15.4.4.21
 // https://developer.mozilla.org/en/Core_JavaScript_1.5_Reference/Objects/Array/reduce
 if (!Array.prototype.reduce) {
-    Array.prototype.reduce = function(fun /*, initial*/) {
+    Array.prototype.reduce = function reduce(fun /*, initial*/) {
         var len = +this.length;
-        if (typeof fun != "function")
+        if (typeof fun !== "function")
             throw new TypeError();
 
         // no value to return if no initial value and an empty array
-        if (len == 0 && arguments.length == 1)
+        if (len === 0 && arguments.length === 1)
             throw new TypeError();
 
         var i = 0;
@@ -2572,13 +2912,13 @@ if (!Array.prototype.reduce) {
 // ES5 15.4.4.22
 // https://developer.mozilla.org/en/Core_JavaScript_1.5_Reference/Objects/Array/reduceRight
 if (!Array.prototype.reduceRight) {
-    Array.prototype.reduceRight = function(fun /*, initial*/) {
+    Array.prototype.reduceRight = function reduceRight(fun /*, initial*/) {
         var len = +this.length;
-        if (typeof fun != "function")
+        if (typeof fun !== "function")
             throw new TypeError();
 
         // no value to return if no initial value, empty array
-        if (len == 0 && arguments.length == 1)
+        if (len === 0 && arguments.length === 1)
             throw new TypeError();
 
         var i = len - 1;
@@ -2608,7 +2948,7 @@ if (!Array.prototype.reduceRight) {
 
 // ES5 15.4.4.14
 if (!Array.prototype.indexOf) {
-    Array.prototype.indexOf = function (value /*, fromIndex */ ) {
+    Array.prototype.indexOf = function indexOf(value /*, fromIndex */ ) {
         var length = this.length;
         if (!length)
             return -1;
@@ -2618,7 +2958,7 @@ if (!Array.prototype.indexOf) {
         if (i < 0)
             i += length;
         for (; i < length; i++) {
-            if (!has.call(this, i))
+            if (!owns(this, i))
                 continue;
             if (value === this[i])
                 return i;
@@ -2629,7 +2969,7 @@ if (!Array.prototype.indexOf) {
 
 // ES5 15.4.4.15
 if (!Array.prototype.lastIndexOf) {
-    Array.prototype.lastIndexOf = function (value /*, fromIndex */) {
+    Array.prototype.lastIndexOf = function lastIndexOf(value /*, fromIndex */) {
         var length = this.length;
         if (!length)
             return -1;
@@ -2638,7 +2978,7 @@ if (!Array.prototype.lastIndexOf) {
             i += length;
         i = Math.min(i, length - 1);
         for (; i >= 0; i--) {
-            if (!has.call(this, i))
+            if (!owns(this, i))
                 continue;
             if (value === this[i])
                 return i;
@@ -2650,14 +2990,14 @@ if (!Array.prototype.lastIndexOf) {
 //
 // Object
 // ======
-// 
+//
 
 // ES5 15.2.3.2
 if (!Object.getPrototypeOf) {
     // https://github.com/kriskowal/es5-shim/issues#issue/2
     // http://ejohn.org/blog/objectgetprototypeof/
     // recommended by fschaefer on github
-    Object.getPrototypeOf = function (object) {
+    Object.getPrototypeOf = function getPrototypeOf(object) {
         return object.__proto__ || object.constructor.prototype;
         // or undefined if not available in this engine
     };
@@ -2665,38 +3005,79 @@ if (!Object.getPrototypeOf) {
 
 // ES5 15.2.3.3
 if (!Object.getOwnPropertyDescriptor) {
-    Object.getOwnPropertyDescriptor = function (object, property) {
-        if (typeof object !== "object" && typeof object !== "function" || object === null)
-            throw new TypeError("Object.getOwnPropertyDescriptor called on a non-object");
+    var ERR_NON_OBJECT = "Object.getOwnPropertyDescriptor called on a " +
+                         "non-object: ";
+    Object.getOwnPropertyDescriptor = function getOwnPropertyDescriptor(object, property) {
+        if ((typeof object !== "object" && typeof object !== "function") || object === null)
+            throw new TypeError(ERR_NON_OBJECT + object);
+        // If object does not owns property return undefined immediately.
+        if (!owns(object, property))
+            return undefined;
 
-        return has.call(object, property) ? {
-            value: object[property],
-            enumerable: true,
-            configurable: true,
-            writeable: true
-        } : undefined;
+        var despriptor, getter, setter;
+
+        // If object has a property then it's for sure both `enumerable` and
+        // `configurable`.
+        despriptor =  { enumerable: true, configurable: true };
+
+        // If JS engine supports accessor properties then property may be a
+        // getter or setter.
+        if (supportsAccessors) {
+            // Unfortunately `__lookupGetter__` will return a getter even
+            // if object has own non getter property along with a same named
+            // inherited getter. To avoid misbehavior we temporary remove
+            // `__proto__` so that `__lookupGetter__` will return getter only
+            // if it's owned by an object.
+            var prototype = object.__proto__;
+            object.__proto__ = prototypeOfObject;
+
+            var getter = lookupGetter(object, property);
+            var setter = lookupSetter(object, property);
+
+            // Once we have getter and setter we can put values back.
+            object.__proto__ = prototype;
+
+            if (getter || setter) {
+                if (getter) descriptor.get = getter;
+                if (setter) descriptor.set = setter;
+
+                // If it was accessor property we're done and return here
+                // in order to avoid adding `value` to the descriptor.
+                return descriptor;
+            }
+        }
+
+        // If we got this far we know that object has an own property that is
+        // not an accessor so we set it as a value and return descriptor.
+        descriptor.value = object[property];
+        return descriptor;
     };
 }
 
 // ES5 15.2.3.4
 if (!Object.getOwnPropertyNames) {
-    Object.getOwnPropertyNames = function (object) {
+    Object.getOwnPropertyNames = function getOwnPropertyNames(object) {
         return Object.keys(object);
     };
 }
 
-// ES5 15.2.3.5 
+// ES5 15.2.3.5
 if (!Object.create) {
-    Object.create = function(prototype, properties) {
+    Object.create = function create(prototype, properties) {
         var object;
         if (prototype === null) {
-            object = {"__proto__": null};
+            object = { "__proto__": null };
         } else {
-            if (typeof prototype != "object")
+            if (typeof prototype !== "object")
                 throw new TypeError("typeof prototype["+(typeof prototype)+"] != 'object'");
             var Type = function () {};
             Type.prototype = prototype;
             object = new Type();
+            // IE has no built-in implementation of `Object.getPrototypeOf`
+            // neither `__proto__`, but this manually setting `__proto__` will
+            // guarantee that `Object.getPrototypeOf` will work as expected with
+            // objects created using `Object.create`
+            object.__proto__ = prototype;
         }
         if (typeof properties !== "undefined")
             Object.defineProperties(object, properties);
@@ -2706,44 +3087,71 @@ if (!Object.create) {
 
 // ES5 15.2.3.6
 if (!Object.defineProperty) {
-    Object.defineProperty = function(object, property, descriptor) {
-        if (typeof descriptor == "object" && object.__defineGetter__) {
-            if (has.call(descriptor, "value")) {
-                if (!object.__lookupGetter__(property) && !object.__lookupSetter__(property))
-                    // data property defined and no pre-existing accessors
-                    object[property] = descriptor.value;
-                if (has.call(descriptor, "get") || has.call(descriptor, "set"))
-                    // descriptor has a value property but accessor already exists
-                    throw new TypeError("Object doesn't support this action");
-            }
+    var ERR_NON_OBJECT_DESCRIPTOR = "Property description must be an object: ";
+    var ERR_NON_OBJECT_TARGET = "Object.defineProperty called on non-object: "
+    var ERR_ACCESSORS_NOT_SUPPORTED = "getters & setters can not be defined " +
+                                      "on this javascript engine";
+
+    Object.defineProperty = function defineProperty(object, property, descriptor) {
+        if (typeof object !== "object" && typeof object !== "function")
+            throw new TypeError(ERR_NON_OBJECT_TARGET + object);
+        if (typeof object !== "object" || object === null)
+            throw new TypeError(ERR_NON_OBJECT_DESCRIPTOR + descriptor);
+
+        // If it's a data property.
+        if (owns(descriptor, "value")) {
             // fail silently if "writable", "enumerable", or "configurable"
             // are requested but not supported
             /*
             // alternate approach:
             if ( // can't implement these features; allow false but not true
-                !(has.call(descriptor, "writable") ? descriptor.writable : true) ||
-                !(has.call(descriptor, "enumerable") ? descriptor.enumerable : true) ||
-                !(has.call(descriptor, "configurable") ? descriptor.configurable : true)
+                !(owns(descriptor, "writable") ? descriptor.writable : true) ||
+                !(owns(descriptor, "enumerable") ? descriptor.enumerable : true) ||
+                !(owns(descriptor, "configurable") ? descriptor.configurable : true)
             )
                 throw new RangeError(
                     "This implementation of Object.defineProperty does not " +
                     "support configurable, enumerable, or writable."
                 );
             */
-            else if (typeof descriptor.get == "function")
-                object.__defineGetter__(property, descriptor.get);
-            if (typeof descriptor.set == "function")
-                object.__defineSetter__(property, descriptor.set);
+
+            if (supportsAccessors && (lookupGetter(object, property) ||
+                                      lookupSetter(object, property)))
+            {
+                // As accessors are supported only on engines implementing
+                // `__proto__` we can safely override `__proto__` while defining
+                // a property to make sure that we don't hit an inherited
+                // accessor.
+                var prototype = object.__proto__;
+                object.__proto__ = prototypeOfObject;
+                // Deleting a property anyway since getter / setter may be
+                // defined on object itself.
+                delete object[property];
+                object[property] = descriptor.value;
+                // Setting original `__proto__` back now.
+                object.prototype;
+            } else {
+                object[property] = descriptor.value;
+            }
+        } else {
+            if (!supportsAccessors)
+                throw new TypeError(ERR_ACCESSORS_NOT_SUPPORTED);
+            // If we got that far then getters and setters can be defined !!
+            if (owns(descriptor, "get"))
+                defineGetter(object, property, descriptor.get);
+            if (owns(descriptor, "set"))
+                defineSetter(object, property, descriptor.set);
         }
+
         return object;
     };
 }
 
 // ES5 15.2.3.7
 if (!Object.defineProperties) {
-    Object.defineProperties = function(object, properties) {
+    Object.defineProperties = function defineProperties(object, properties) {
         for (var property in properties) {
-            if (has.call(properties, property))
+            if (owns(properties, property))
                 Object.defineProperty(object, property, properties[property]);
         }
         return object;
@@ -2752,7 +3160,7 @@ if (!Object.defineProperties) {
 
 // ES5 15.2.3.8
 if (!Object.seal) {
-    Object.seal = function (object) {
+    Object.seal = function seal(object) {
         // this is misleading and breaks feature-detection, but
         // allows "securable" code to "gracefully" degrade to working
         // but insecure code.
@@ -2762,7 +3170,7 @@ if (!Object.seal) {
 
 // ES5 15.2.3.9
 if (!Object.freeze) {
-    Object.freeze = function (object) {
+    Object.freeze = function freeze(object) {
         // this is misleading and breaks feature-detection, but
         // allows "securable" code to "gracefully" degrade to working
         // but insecure code.
@@ -2774,12 +3182,12 @@ if (!Object.freeze) {
 try {
     Object.freeze(function () {});
 } catch (exception) {
-    Object.freeze = (function (freeze) {
-        return function (object) {
-            if (typeof object == "function") {
+    Object.freeze = (function freeze(freezeObject) {
+        return function freeze(object) {
+            if (typeof object === "function") {
                 return object;
             } else {
-                return freeze(object);
+                return freezeObject(object);
             }
         };
     })(Object.freeze);
@@ -2787,7 +3195,7 @@ try {
 
 // ES5 15.2.3.10
 if (!Object.preventExtensions) {
-    Object.preventExtensions = function (object) {
+    Object.preventExtensions = function preventExtensions(object) {
         // this is misleading and breaks feature-detection, but
         // allows "securable" code to "gracefully" degrade to working
         // but insecure code.
@@ -2797,21 +3205,21 @@ if (!Object.preventExtensions) {
 
 // ES5 15.2.3.11
 if (!Object.isSealed) {
-    Object.isSealed = function (object) {
+    Object.isSealed = function isSealed(object) {
         return false;
     };
 }
 
 // ES5 15.2.3.12
 if (!Object.isFrozen) {
-    Object.isFrozen = function (object) {
+    Object.isFrozen = function isFrozen(object) {
         return false;
     };
 }
 
 // ES5 15.2.3.13
 if (!Object.isExtensible) {
-    Object.isExtensible = function (object) {
+    Object.isExtensible = function isExtensible(object) {
         return true;
     };
 }
@@ -2835,7 +3243,7 @@ if (!Object.keys) {
     for (var key in {"toString": null})
         hasDontEnumBug = false;
 
-    Object.keys = function (object) {
+    Object.keys = function keys(object) {
 
         if (
             typeof object !== "object" && typeof object !== "function"
@@ -2845,7 +3253,7 @@ if (!Object.keys) {
 
         var keys = [];
         for (var name in object) {
-            if (has.call(object, name)) {
+            if (owns(object, name)) {
                 keys.push(name);
             }
         }
@@ -2853,7 +3261,7 @@ if (!Object.keys) {
         if (hasDontEnumBug) {
             for (var i = 0, ii = dontEnumsLength; i < ii; i++) {
                 var dontEnum = dontEnums[i];
-                if (has.call(object, dontEnum)) {
+                if (owns(object, dontEnum)) {
                     keys.push(dontEnum);
                 }
             }
@@ -2873,7 +3281,7 @@ if (!Object.keys) {
 // Format a Date object as a string according to a subset of the ISO-8601 standard.
 // Useful in Atom, among other things.
 if (!Date.prototype.toISOString) {
-    Date.prototype.toISOString = function() {
+    Date.prototype.toISOString = function toISOString() {
         return (
             this.getUTCFullYear() + "-" +
             (this.getUTCMonth() + 1) + "-" +
@@ -2881,20 +3289,20 @@ if (!Date.prototype.toISOString) {
             this.getUTCHours() + ":" +
             this.getUTCMinutes() + ":" +
             this.getUTCSeconds() + "Z"
-        ); 
+        );
     }
 }
 
 // ES5 15.9.4.4
 if (!Date.now) {
-    Date.now = function () {
+    Date.now = function now() {
         return new Date().getTime();
     };
 }
 
 // ES5 15.9.5.44
 if (!Date.prototype.toJSON) {
-    Date.prototype.toJSON = function (key) {
+    Date.prototype.toJSON = function toJSON(key) {
         // This function provides a String representation of a Date object for
         // use by JSON.stringify (15.12.3). When the toJSON method is called
         // with argument key, the following steps are taken:
@@ -2907,7 +3315,7 @@ if (!Date.prototype.toJSON) {
         // 4. Let toISO be the result of calling the [[Get]] internal method of
         // O with argument "toISOString".
         // 5. If IsCallable(toISO) is false, throw a TypeError exception.
-        if (typeof this.toISOString != "function")
+        if (typeof this.toISOString !== "function")
             throw new TypeError();
         // 6. Return the result of calling the [[Call]] internal method of
         // toISO with O as the this value and an empty argument list.
@@ -2971,7 +3379,7 @@ if (isNaN(Date.parse("T00:00"))) {
                         "(\\d\\d)" + // day capture
                     ")?" +
                 ")?" +
-            ")?" + 
+            ")?" +
             "(?:T" + // hour:minute:second.subsecond
                 "(\\d\\d)" + // hour capture
                 ":(\\d\\d)" + // minute capture
@@ -3000,7 +3408,7 @@ if (isNaN(Date.parse("T00:00"))) {
         // Upgrade Date.parse to handle the ISO dates we use
         // TODO review specification to ascertain whether it is
         // necessary to implement partial ISO date strings.
-        Date.parse = function(string) {
+        Date.parse = function parse(string) {
             var match = isoDateExpression.exec(string);
             if (match) {
                 match.shift(); // kill match[0], the full match
@@ -3041,127 +3449,6 @@ if (isNaN(Date.parse("T00:00"))) {
     })(Date);
 }
 
-// 
-// Function
-// ========
-// 
-
-// ES-5 15.3.4.5
-// http://www.ecma-international.org/publications/files/drafts/tc39-2009-025.pdf
-var slice = Array.prototype.slice;
-if (!Function.prototype.bind) {
-    Function.prototype.bind = function (that) { // .length is 1
-        // 1. Let Target be the this value.
-        var target = this;
-        // 2. If IsCallable(Target) is false, throw a TypeError exception.
-        // XXX this gets pretty close, for all intents and purposes, letting 
-        // some duck-types slide
-        if (typeof target.apply != "function" || typeof target.call != "function")
-            return new TypeError();
-        // 3. Let A be a new (possibly empty) internal list of all of the
-        //   argument values provided after thisArg (arg1, arg2 etc), in order.
-        var args = slice.call(arguments);
-        // 4. Let F be a new native ECMAScript object.
-        // 9. Set the [[Prototype]] internal property of F to the standard
-        //   built-in Function prototype object as specified in 15.3.3.1.
-        // 10. Set the [[Call]] internal property of F as described in
-        //   15.3.4.5.1.
-        // 11. Set the [[Construct]] internal property of F as described in
-        //   15.3.4.5.2.
-        // 12. Set the [[HasInstance]] internal property of F as described in
-        //   15.3.4.5.3.
-        // 13. The [[Scope]] internal property of F is unused and need not
-        //   exist.
-        var bound = function () {
-
-            if (this instanceof bound) {
-                // 15.3.4.5.2 [[Construct]]
-                // When the [[Construct]] internal method of a function object,
-                // F that was created using the bind function is called with a
-                // list of arguments ExtraArgs the following steps are taken:
-                // 1. Let target be the value of F's [[TargetFunction]]
-                //   internal property.
-                // 2. If target has no [[Construct]] internal method, a
-                //   TypeError exception is thrown.
-                // 3. Let boundArgs be the value of F's [[BoundArgs]] internal
-                //   property.
-                // 4. Let args be a new list containing the same values as the
-                //   list boundArgs in the same order followed by the same
-                //   values as the list ExtraArgs in the same order.
-
-                var self = Object.create(target.prototype);
-                target.apply(self, args.concat(slice.call(arguments)));
-                return self;
-
-            } else {
-                // 15.3.4.5.1 [[Call]]
-                // When the [[Call]] internal method of a function object, F,
-                // which was created using the bind function is called with a
-                // this value and a list of arguments ExtraArgs the following
-                // steps are taken:
-                // 1. Let boundArgs be the value of F's [[BoundArgs]] internal
-                //   property.
-                // 2. Let boundThis be the value of F's [[BoundThis]] internal
-                //   property.
-                // 3. Let target be the value of F's [[TargetFunction]] internal
-                //   property.
-                // 4. Let args be a new list containing the same values as the list
-                //   boundArgs in the same order followed by the same values as
-                //   the list ExtraArgs in the same order. 5.  Return the
-                //   result of calling the [[Call]] internal method of target
-                //   providing boundThis as the this value and providing args
-                //   as the arguments.
-
-                // equiv: target.call(this, ...boundArgs, ...args)
-                return target.call.apply(
-                    target,
-                    args.concat(slice.call(arguments))
-                );
-
-            }
-
-        };
-        // 5. Set the [[TargetFunction]] internal property of F to Target.
-        // extra:
-        bound.bound = target;
-        // 6. Set the [[BoundThis]] internal property of F to the value of
-        // thisArg.
-        // extra:
-        bound.boundTo = that;
-        // 7. Set the [[BoundArgs]] internal property of F to A.
-        // extra:
-        bound.boundArgs = args;
-        bound.length = (
-            // 14. If the [[Class]] internal property of Target is "Function", then
-            typeof target == "function" ?
-            // a. Let L be the length property of Target minus the length of A.
-            // b. Set the length own property of F to either 0 or L, whichever is larger.
-            Math.max(target.length - args.length, 0) :
-            // 15. Else set the length own property of F to 0.
-            0
-        )
-        // 16. The length own property of F is given attributes as specified in
-        //   15.3.5.1.
-        // TODO
-        // 17. Set the [[Extensible]] internal property of F to true.
-        // TODO
-        // 18. Call the [[DefineOwnProperty]] internal method of F with
-        //   arguments "caller", PropertyDescriptor {[[Value]]: null,
-        //   [[Writable]]: false, [[Enumerable]]: false, [[Configurable]]:
-        //   false}, and false.
-        // TODO
-        // 19. Call the [[DefineOwnProperty]] internal method of F with
-        //   arguments "arguments", PropertyDescriptor {[[Value]]: null,
-        //   [[Writable]]: false, [[Enumerable]]: false, [[Configurable]]:
-        //   false}, and false.
-        // TODO
-        // NOTE Function objects created using Function.prototype.bind do not
-        // have a prototype property.
-        // XXX can't delete it in pure-js.
-        return bound;
-    };
-}
-
 //
 // String
 // ======
@@ -3172,15 +3459,14 @@ if (!String.prototype.trim) {
     // http://blog.stevenlevithan.com/archives/faster-trim-javascript
     var trimBeginRegexp = /^\s\s*/;
     var trimEndRegexp = /\s\s*$/;
-    String.prototype.trim = function () {
+    String.prototype.trim = function trim() {
         return String(this).replace(trimBeginRegexp, '').replace(trimEndRegexp, '');
     };
 }
 
-exports.globalsLoaded = true;
-
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/plugin_manager'), ['pilot/promise'], function (require, exports, module) {
+});
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/plugin_manager'), ['pilot/promise'], function (require, exports, module) {
 
 
 var Promise = require("pilot/promise").Promise;
@@ -3303,7 +3589,7 @@ exports.PluginCatalog.prototype = {
 exports.catalog = new exports.PluginCatalog();
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/promise'), ['pilot/console','pilot/stacktrace'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/promise'), ['pilot/console','pilot/stacktrace'], function (require, exports, module) {
 
 
 var console = require("pilot/console");
@@ -3531,7 +3817,7 @@ exports._outstanding = _outstanding;
 exports._recent = _recent;
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/console'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/console'), [], function (require, exports, module) {
 
     
 /**
@@ -3570,7 +3856,7 @@ if (typeof(window) === 'undefined') {
 }
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/stacktrace'), ['pilot/useragent','pilot/console'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/stacktrace'), ['pilot/useragent','pilot/console'], function (require, exports, module) {
 
     
 var ua = require("pilot/useragent");
@@ -3903,7 +4189,7 @@ exports.Trace.prototype.log = function(lines) {
 };
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/useragent'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/useragent'), [], function (require, exports, module) {
 
 
 var os = (navigator.platform.match(/mac|win|linux/i) || ["other"])[0].toLowerCase();
@@ -3964,7 +4250,7 @@ exports.getOS = function() {
 };
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/settings'), ['pilot/console','pilot/oop','pilot/types','pilot/event_emitter','pilot/catalog'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/settings'), ['pilot/console','pilot/oop','pilot/types','pilot/event_emitter','pilot/catalog'], function (require, exports, module) {
 
 
 /**
@@ -4251,7 +4537,7 @@ CookiePersister.prototype = {
 exports.CookiePersister = CookiePersister;
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/oop'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/oop'), [], function (require, exports, module) {
 
 
 exports.inherits = (function() {
@@ -4275,7 +4561,7 @@ exports.implement = function(proto, mixin) {
 };
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/types'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/types'), [], function (require, exports, module) {
 
 
 /**
@@ -4521,7 +4807,7 @@ exports.getType = function(typeSpec) {
 
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/event_emitter'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/event_emitter'), [], function (require, exports, module) {
 
 
 var EventEmitter = {};
@@ -4575,7 +4861,7 @@ EventEmitter.removeAllListeners = function(eventName) {
 exports.EventEmitter = EventEmitter;
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/catalog'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/catalog'), [], function (require, exports, module) {
 
 
 
@@ -4604,7 +4890,7 @@ exports.getExtensionSpecs = function() {
 
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/environment'), ['pilot/settings'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/environment'), ['pilot/settings'], function (require, exports, module) {
 
 
 
@@ -4623,7 +4909,7 @@ exports.create = create;
 
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/canon'), ['pilot/console','pilot/stacktrace','pilot/oop','pilot/useragent','pilot/keys','pilot/event_emitter','pilot/typecheck','pilot/catalog','pilot/types','pilot/types','pilot/lang'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/canon'), ['pilot/console','pilot/stacktrace','pilot/oop','pilot/useragent','pilot/keys','pilot/event_emitter','pilot/typecheck','pilot/catalog','pilot/types','pilot/types','pilot/lang'], function (require, exports, module) {
 
 
 var console = require('pilot/console');
@@ -5225,7 +5511,7 @@ exports.Request = Request;
 
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/keys'), ['pilot/oop'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/keys'), ['pilot/oop'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -5311,7 +5597,7 @@ exports.keyCodeToString = function(keyCode) {
 }
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/typecheck'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/typecheck'), [], function (require, exports, module) {
 
 
 var objectToString = Object.prototype.toString;
@@ -5355,7 +5641,7 @@ exports.isFunction = function(it) {
 };
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/lang'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/lang'), [], function (require, exports, module) {
 
 
 exports.stringReverse = function(string) {
@@ -5364,6 +5650,17 @@ exports.stringReverse = function(string) {
 
 exports.stringRepeat = function (string, count) {
      return new Array(count + 1).join(string);
+};
+
+var trimBeginRegexp = /^\s\s*/;
+var trimEndRegexp = /\s\s*$/;
+
+exports.stringTrimLeft = function (string) {
+    return string.replace(trimBeginRegexp, '')
+};
+
+exports.stringTrimRight = function (string) {
+    return string.replace(trimEndRegexp, ''); 
 };
 
 exports.copyObject = function(obj) {
@@ -5431,7 +5728,7 @@ exports.deferredCall = function(fcn) {
 };
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/event'), ['pilot/keys','pilot/useragent','pilot/dom'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/event'), ['pilot/keys','pilot/useragent','pilot/dom'], function (require, exports, module) {
 
 
 var keys = require("pilot/keys");
@@ -5701,7 +5998,7 @@ exports.addCommandKeyListener = function(el, callback) {
 };
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/dom'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/dom'), [], function (require, exports, module) {
 
 
 var XHTML_NS = "http://www.w3.org/1999/xhtml";
@@ -5953,7 +6250,7 @@ exports.setSelectionEnd = function(textarea, end) {
 };
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/editor'), ['pilot/fixoldbrowsers','pilot/oop','pilot/event','pilot/lang','pilot/useragent','ace/keyboard/textinput','ace/mouse_handler','ace/keyboard/keybinding','ace/edit_session','ace/search','ace/background_tokenizer','ace/range','pilot/event_emitter'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/editor'), ['pilot/fixoldbrowsers','pilot/oop','pilot/event','pilot/lang','pilot/useragent','ace/keyboard/textinput','ace/mouse_handler','ace/keyboard/keybinding','ace/edit_session','ace/search','ace/range','pilot/event_emitter'], function (require, exports, module) {
 
 
 require("pilot/fixoldbrowsers");
@@ -5968,7 +6265,6 @@ var MouseHandler = require("ace/mouse_handler").MouseHandler;
 var KeyBinding = require("ace/keyboard/keybinding").KeyBinding;
 var EditSession = require("ace/edit_session").EditSession;
 var Search = require("ace/search").Search;
-var BackgroundTokenizer = require("ace/background_tokenizer").BackgroundTokenizer;
 var Range = require("ace/range").Range;
 var EventEmitter = require("pilot/event_emitter").EventEmitter;
 
@@ -5979,7 +6275,7 @@ var Editor =function(renderer, session) {
 
     this.textInput  = new TextInput(renderer.getTextAreaContainer(), this);
     this.keyBinding = new KeyBinding(this);
-    
+
     // TODO detect touch event support
     if (useragent.isIPad) {
         //this.$mouseHandler = new TouchHandler(this);
@@ -6038,9 +6334,11 @@ var Editor =function(renderer, session) {
             var oldSession = this.session;
             this.session.removeEventListener("change", this.$onDocumentChange);
             this.session.removeEventListener("changeMode", this.$onChangeMode);
+            this.session.removeEventListener("tokenizerUpdate", this.$onTokenizerUpdate);
             this.session.removeEventListener("changeTabSize", this.$onChangeTabSize);
             this.session.removeEventListener("changeWrapLimit", this.$onChangeWrapLimit);
             this.session.removeEventListener("changeWrapMode", this.$onChangeWrapMode);
+            this.session.removeEventListener("onChangeFold", this.$onChangeFold);
             this.session.removeEventListener("changeFrontMarker", this.$onChangeFrontMarker);
             this.session.removeEventListener("changeBackMarker", this.$onChangeBackMarker);
             this.session.removeEventListener("changeBreakpoint", this.$onChangeBreakpoint);
@@ -6063,6 +6361,9 @@ var Editor =function(renderer, session) {
         this.$onChangeMode = this.onChangeMode.bind(this);
         session.addEventListener("changeMode", this.$onChangeMode);
 
+        this.$onTokenizerUpdate = this.onTokenizerUpdate.bind(this);
+        session.addEventListener("tokenizerUpdate", this.$onTokenizerUpdate);
+
         this.$onChangeTabSize = this.renderer.updateText.bind(this.renderer);
         session.addEventListener("changeTabSize", this.$onChangeTabSize);
 
@@ -6072,18 +6373,21 @@ var Editor =function(renderer, session) {
         this.$onChangeWrapMode = this.onChangeWrapMode.bind(this);
         session.addEventListener("changeWrapMode", this.$onChangeWrapMode);
 
+        this.$onChangeFold = this.onChangeFold.bind(this);
+        session.addEventListener("changeFold", this.$onChangeFold);
+
         this.$onChangeFrontMarker = this.onChangeFrontMarker.bind(this);
         this.session.addEventListener("changeFrontMarker", this.$onChangeFrontMarker);
-        
+
         this.$onChangeBackMarker = this.onChangeBackMarker.bind(this);
         this.session.addEventListener("changeBackMarker", this.$onChangeBackMarker);
-        
+
         this.$onChangeBreakpoint = this.onChangeBreakpoint.bind(this);
         this.session.addEventListener("changeBreakpoint", this.$onChangeBreakpoint);
 
         this.$onChangeAnnotation = this.onChangeAnnotation.bind(this);
         this.session.addEventListener("changeAnnotation", this.$onChangeAnnotation);
-        
+
         this.$onCursorChange = this.onCursorChange.bind(this);
         this.session.addEventListener("changeOverwrite", this.$onCursorChange);
 
@@ -6094,8 +6398,6 @@ var Editor =function(renderer, session) {
         this.selection.addEventListener("changeSelection", this.$onSelectionChange);
 
         this.onChangeMode();
-        this.bgTokenizer.setDocument(session.getDocument());
-        this.bgTokenizer.start(0);
 
         this.onCursorChange();
         this.onSelectionChange();
@@ -6166,7 +6468,7 @@ var Editor =function(renderer, session) {
         // to be on the save side we do both
         // except for IE
         var _self = this;
-        if (!useragent.isIE) {        
+        if (!useragent.isIE) {
             setTimeout(function() {
                 _self.textInput.focus();
             });
@@ -6194,7 +6496,6 @@ var Editor =function(renderer, session) {
         var delta = e.data;
         var range = delta.range;
 
-        this.bgTokenizer.start(range.start.row);
         if (range.start.row == range.end.row && delta.action != "insertLines" && delta.action != "removeLines")
             var lastRow = range.end.row;
         else
@@ -6227,22 +6528,28 @@ var Editor =function(renderer, session) {
 
     this.$updateHighlightActiveLine = function() {
         var session = this.getSession();
-        
+
         if (session.$highlightLineMarker) {
             session.removeMarker(session.$highlightLineMarker);
         }
         session.$highlightLineMarker = null;
 
         if (this.getHighlightActiveLine() && (this.getSelectionStyle() != "line" || !this.selection.isMultiLine())) {
-            var cursor = this.getCursorPosition();
-            var range = new Range(cursor.row, 0, cursor.row+1, 0);
+            var cursor = this.getCursorPosition(),
+                foldLine = this.session.getFoldLine(cursor.row);
+            var range;
+            if (foldLine) {
+                range = new Range(foldLine.start.row, 0, foldLine.end.row + 1, 0);
+            } else {
+                range = new Range(cursor.row, 0, cursor.row+1, 0);
+            }
             session.$highlightLineMarker = session.addMarker(range, "ace_active_line", "line");
         }
     };
 
     this.onSelectionChange = function(e) {
         var session = this.getSession();
-        
+
         if (session.$selectionMarker) {
             session.removeMarker(session.$selectionMarker);
         }
@@ -6257,17 +6564,17 @@ var Editor =function(renderer, session) {
         this.onCursorChange(e);
 
         if (this.$highlightSelectedWord)
-            this.mode.highlightSelection(this);
+            this.session.getMode().highlightSelection(this);
     };
 
     this.onChangeFrontMarker = function() {
         this.renderer.updateFrontMarkers();
     };
-    
+
     this.onChangeBackMarker = function() {
         this.renderer.updateBackMarkers();
     };
-    
+
     this.onChangeBreakpoint = function() {
         this.renderer.setBreakpoints(this.session.getBreakpoints());
     };
@@ -6277,22 +6584,7 @@ var Editor =function(renderer, session) {
     };
 
     this.onChangeMode = function() {
-        var mode = this.session.getMode();
-        if (this.mode == mode)
-            return;
-
-        this.mode = mode;
-        var tokenizer = mode.getTokenizer();
-
-        if (!this.bgTokenizer) {
-            var onUpdate = this.onTokenizerUpdate.bind(this);
-            this.bgTokenizer = new BackgroundTokenizer(tokenizer, this);
-            this.bgTokenizer.addEventListener("update", onUpdate);
-        } else {
-            this.bgTokenizer.setTokenizer(tokenizer);
-        }
-
-        this.renderer.setTokenizer(this.bgTokenizer);
+        this.renderer.updateText()
     };
 
     this.onChangeWrapLimit = function() {
@@ -6301,6 +6593,11 @@ var Editor =function(renderer, session) {
 
     this.onChangeWrapMode = function() {
         this.renderer.onResize(true);
+    };
+
+    this.onChangeFold = function() {
+        // TODO: This might be too much updating. Okay for now.
+        this.renderer.updateFull();
     };
 
     this.getCopyText = function() {
@@ -6326,6 +6623,9 @@ var Editor =function(renderer, session) {
         if (this.$readOnly)
             return;
 
+        var session = this.session;
+        var mode = session.getMode();
+
         var cursor = this.getCursorPosition();
         text = text.replace("\t", this.session.getTabString());
 
@@ -6342,28 +6642,27 @@ var Editor =function(renderer, session) {
 
         this.clearSelection();
 
-        var lineState     = this.bgTokenizer.getState(cursor.row);
-        var shouldOutdent = this.mode.checkOutdent(lineState, this.session.getLine(cursor.row), text);
-        var line          = this.session.getLine(cursor.row);
-        var lineIndent    = this.mode.getNextLineIndent(lineState, line.slice(0, cursor.column), this.session.getTabString());
-        var end           = this.session.insert(cursor, text);
+        var lineState     = session.getState(cursor.row);
+        var shouldOutdent = mode.checkOutdent(lineState, session.getLine(cursor.row), text);
+        var line          = session.getLine(cursor.row);
+        var lineIndent    = mode.getNextLineIndent(lineState, line.slice(0, cursor.column), session.getTabString());
+        var end           = session.insert(cursor, text);
 
-        
-        var lineState = this.bgTokenizer.getState(cursor.row);
+        var lineState = session.getState(cursor.row);
+
         // TODO disabled multiline auto indent
         // possibly doing the indent before inserting the text
         // if (cursor.row !== end.row) {
-        if (this.session.getDocument().isNewLine(text)) {
+        if (session.getDocument().isNewLine(text)) {
             this.moveCursorTo(cursor.row+1, 0);
-            
-            var size        = this.session.getTabSize(),
-                minIndent   = Number.MAX_VALUE;
 
-            
+            var size = session.getTabSize();
+            var minIndent = Number.MAX_VALUE;
+
             for (var row = cursor.row + 1; row <= end.row; ++row) {
                 var indent = 0;
 
-                line = this.session.getLine(row);
+                line = session.getLine(row);
                 for (var i = 0; i < line.length; ++i)
                     if (line.charAt(i) == '\t')
                         indent += size;
@@ -6378,20 +6677,20 @@ var Editor =function(renderer, session) {
             for (var row = cursor.row + 1; row <= end.row; ++row) {
                 var outdent = minIndent;
 
-                line = this.session.getLine(row);
+                line = session.getLine(row);
                 for (var i = 0; i < line.length && outdent > 0; ++i)
                     if (line.charAt(i) == '\t')
                         outdent -= size;
                     else if (line.charAt(i) == ' ')
                         outdent -= 1;
-                this.session.remove(new Range(row, 0, row, i));
+                session.remove(new Range(row, 0, row, i));
             }
-            this.session.indentRows(cursor.row + 1, end.row, lineIndent);
+            session.indentRows(cursor.row + 1, end.row, lineIndent);
         } else {
             if (shouldOutdent) {
-                this.mode.autoOutdent(lineState, this.session, cursor.row);
+                mode.autoOutdent(lineState, session, cursor.row);
             }
-        };        
+        };
     }
 
     this.onTextInput = function(text) {
@@ -6403,7 +6702,7 @@ var Editor =function(renderer, session) {
     };
 
     this.setOverwrite = function(overwrite) {
-        this.session.setOverwrite();        
+        this.session.setOverwrite(overwrite);
     };
 
     this.getOverwrite = function() {
@@ -6454,9 +6753,9 @@ var Editor =function(renderer, session) {
 
         this.$highlightSelectedWord = shouldHighlight;
         if (shouldHighlight)
-            this.mode.highlightSelection(this);
+            this.session.getMode().highlightSelection(this);
         else
-            this.mode.clearSelectionHighlight(this);
+            this.session.getMode().clearSelectionHighlight(this);
     };
 
     this.getHighlightSelectedWord = function() {
@@ -6520,7 +6819,7 @@ var Editor =function(renderer, session) {
         this.session.remove(this.getSelectionRange());
         this.clearSelection();
     };
-    
+
     this.removeWordRight = function() {
         if (this.$readOnly)
             return;
@@ -6531,7 +6830,7 @@ var Editor =function(renderer, session) {
         this.session.remove(this.getSelectionRange());
         this.clearSelection();
     };
-    
+
     this.removeWordLeft = function() {
         if (this.$readOnly)
             return;
@@ -6542,7 +6841,7 @@ var Editor =function(renderer, session) {
         this.session.remove(this.getSelectionRange());
         this.clearSelection();
     };
-    
+
     this.removeToLineStart = function() {
         if (this.$readOnly)
             return;
@@ -6553,7 +6852,7 @@ var Editor =function(renderer, session) {
         this.session.remove(this.getSelectionRange());
         this.clearSelection();
     };
-    
+
     this.removeToLineEnd = function() {
         if (this.$readOnly)
             return;
@@ -6568,30 +6867,30 @@ var Editor =function(renderer, session) {
     this.splitLine = function() {
         if (this.$readOnly)
             return;
-        
+
         if (!this.selection.isEmpty()) {
             this.session.remove(this.getSelectionRange());
             this.clearSelection();
         }
-    
+
         var cursor = this.getCursorPosition();
         this.insert("\n");
         this.moveCursorToPosition(cursor);
     };
-    
+
     this.transposeLetters = function() {
         if (this.$readOnly)
             return;
-        
+
         if (!this.selection.isEmpty()) {
             return;
         }
-    
+
         var cursor = this.getCursorPosition();
         var column = cursor.column;
         if (column == 0)
             return;
-        
+
         var line = this.session.getLine(cursor.row);
         if (column < line.length) {
             var swap = line.charAt(column) + line.charAt(column-1);
@@ -6603,7 +6902,7 @@ var Editor =function(renderer, session) {
         }
         this.session.replace(range, swap);
     };
-    
+
     this.indent = function() {
         if (this.$readOnly)
             return;
@@ -6642,9 +6941,9 @@ var Editor =function(renderer, session) {
         if (this.$readOnly)
             return;
 
-        var state = this.bgTokenizer.getState(this.getCursorPosition().row);
+        var state = this.session.getState(this.getCursorPosition().row);
         var rows = this.$getSelectedRows()
-        this.mode.toggleCommentLines(state, this.session, rows.first, rows.last);
+        this.session.getMode().toggleCommentLines(state, this.session, rows.first, rows.last);
     };
 
     this.removeLines = function() {
@@ -6816,7 +7115,7 @@ var Editor =function(renderer, session) {
     this.scrollToLine = function(line, center) {
         this.renderer.scrollToLine(line, center);
     };
-    
+
     this.centerSelection = function() {
         var range = this.getSelectionRange();
         var line = Math.floor(range.start.row + (range.end.row - range.start.row) / 2);
@@ -6841,7 +7140,7 @@ var Editor =function(renderer, session) {
         this.selection.selectAll();
         this.$blockScrolling -= 1;
     };
-    
+
     this.clearSelection = function() {
         this.selection.clearSelection();
     };
@@ -6968,7 +7267,7 @@ var Editor =function(renderer, session) {
         this.$blockScrolling += 1;
         for (var i = ranges.length - 1; i >= 0; --i)
             this.$tryReplace(ranges[i], replacement);
-        
+
         this.selection.setSelectionRange(selection);
         this.$blockScrolling -= 1;
     },
@@ -7040,7 +7339,7 @@ var Editor =function(renderer, session) {
 
 exports.Editor = Editor;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/keyboard/textinput'), ['pilot/event','pilot/useragent','pilot/dom'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/keyboard/textinput'), ['pilot/event','pilot/useragent','pilot/dom'], function (require, exports, module) {
 
 
 var event = require("pilot/event");
@@ -7249,7 +7548,7 @@ var TextInput = function(parentNode, host) {
 
 exports.TextInput = TextInput;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mouse_handler'), ['pilot/event','pilot/dom'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mouse_handler'), ['pilot/event','pilot/dom'], function (require, exports, module) {
 
 
 var event = require("pilot/event");
@@ -7500,7 +7799,7 @@ var MouseHandler = function(editor) {
 
 exports.MouseHandler = MouseHandler;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/keyboard/keybinding'), ['pilot/useragent','pilot/keys','pilot/event','pilot/settings','pilot/canon','ace/commands/default_commands'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/keyboard/keybinding'), ['pilot/useragent','pilot/keys','pilot/event','pilot/settings','pilot/canon','ace/commands/default_commands'], function (require, exports, module) {
 
 
 var useragent = require("pilot/useragent");
@@ -7575,7 +7874,7 @@ var KeyBinding = function(editor) {
 
 exports.KeyBinding = KeyBinding;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/commands/default_commands'), ['pilot/lang','pilot/canon'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/commands/default_commands'), ['pilot/lang','pilot/canon'], function (require, exports, module) {
 
 
 var lang = require("pilot/lang");
@@ -7889,7 +8188,7 @@ canon.addCommand({
 });
 canon.addCommand({
     name: "centerselection",
-    bindKey: bindKey("Ctrl-L", "Ctrl-L"),
+    bindKey: bindKey(null, "Ctrl-L"),
     exec: function(env, args, request) { env.editor.centerSelection(); }
 });
 canon.addCommand({
@@ -7904,7 +8203,7 @@ canon.addCommand({
 });
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/edit_session'), ['pilot/oop','pilot/lang','pilot/event_emitter','ace/selection','ace/mode/text','ace/range','ace/document'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/edit_session'), ['pilot/oop','pilot/lang','pilot/event_emitter','ace/selection','ace/mode/text','ace/range','ace/document','ace/background_tokenizer','ace/edit_session/folding'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -7914,6 +8213,7 @@ var Selection = require("ace/selection").Selection;
 var TextMode = require("ace/mode/text").Mode;
 var Range = require("ace/range").Range;
 var Document = require("ace/document").Document;
+var BackgroundTokenizer = require("ace/background_tokenizer").BackgroundTokenizer;
 
 var EditSession = function(text, mode) {
     this.$modified = true;
@@ -7921,7 +8221,18 @@ var EditSession = function(text, mode) {
     this.$frontMarkers = {};
     this.$backMarkers = {};
     this.$markerId = 1;
+    this.$rowCache = [];
+    this.$rowCacheSize = 1000;
     this.$wrapData = [];
+    this.$foldData = [];
+    this.$foldData.toString = function() {
+        var str = "";
+        this.forEach(function(foldLine) {
+            str += "\n" + foldLine.toString();
+        });
+        return str;
+    }
+    this.$docChangeCounter = 0;
 
     if (text instanceof Document) {
         this.setDocument(text);
@@ -7932,6 +8243,8 @@ var EditSession = function(text, mode) {
     this.selection = new Selection(this);
     if (mode)
         this.setMode(mode);
+    else
+        this.setMode(new TextMode());
 };
 
 
@@ -7945,27 +8258,88 @@ var EditSession = function(text, mode) {
 
         this.doc = doc;
         doc.on("change", this.onChange.bind(this));
+        doc.on("changeStart", this.onChangeStart.bind(this));
+        doc.on("changeEnd",   this.onChangeEnd.bind(this));
+        this.on("changeFold", this.onChangeFold.bind(this));
     };
 
     this.getDocument = function() {
         return this.doc;
     };
 
+    this.onChangeStart = function() {
+        this.$docChangeCounter ++;
+    };
+
+    this.$resetRowCache = function(row) {
+        if (row == 0) {
+            this.$rowCache = [];
+            return;
+        }
+        var rowCache = this.$rowCache;
+        for (var i = 0; i < rowCache.length; i++) {
+            if (rowCache[i].docRow >= row) {
+                rowCache.splice(i, rowCache.length);
+                return;
+            }
+        }
+    }
+
+    this.onChangeEnd = function() {
+        this.$docChangeCounter --;
+        if (this.$docChangeCounter == 0
+            && !this.$fromUndo && this.$undoManager)
+        {
+            if (this.$deltasFold.length) {
+                this.$deltas.push({
+                    group: "fold",
+                    deltas: this.$deltasFold
+                });
+                this.$deltasFold = [];
+            }
+            if (this.$deltasDoc) {
+                this.$deltas.push({
+                    group: "doc",
+                    deltas: this.$deltasDoc
+                });
+                this.$deltasDoc = [];
+            }
+            this.$informUndoManager.schedule();
+        }
+    };
+
+    this.onChangeFold = function(e) {
+        var fold = e.data;
+        this.$resetRowCache(fold.start.row);
+    };
+
     this.onChange = function(e) {
         var delta = e.data;
         this.$modified = true;
+
+        this.$resetRowCache(delta.range.start.row);
+
+        var removedFolds = this.$updateInternalDataOnChange(e);
         if (!this.$fromUndo && this.$undoManager && !delta.ignore) {
-            this.$deltas.push(delta);
-            this.$informUndoManager.schedule();
+            this.$deltasDoc.push(delta);
+            if (removedFolds && removedFolds.length != 0) {
+                this.$deltasFold.push({
+                    action: "removeFolds",
+                    folds:  removedFolds
+                });
+            }
         }
 
-        this.$updateWrapDataOnChange(e);
+        this.bgTokenizer.start(delta.range.start.row);
         this._dispatchEvent("change", e);
     };
 
     this.setValue = function(text) {
         this.doc.setValue(text);
+        this.$resetRowCache(0);
         this.$deltas = [];
+        this.$deltasDoc = [];
+        this.$deltasFold = [];
         this.getUndoManager().reset();
     };
 
@@ -7978,9 +8352,20 @@ var EditSession = function(text, mode) {
         return this.selection;
     };
 
+    this.getState = function(row) {
+        return this.bgTokenizer.getState(row);
+    };
+
+    this.getTokens = function(firstRow, lastRow) {
+        return this.bgTokenizer.getTokens(firstRow, lastRow);
+    };
+
     this.setUndoManager = function(undoManager) {
         this.$undoManager = undoManager;
+        this.$resetRowCache(0);
         this.$deltas = [];
+        this.$deltasDoc = [];
+        this.$deltasFold = [];
 
         if (this.$informUndoManager) {
             this.$informUndoManager.cancel();
@@ -7988,14 +8373,17 @@ var EditSession = function(text, mode) {
 
         if (undoManager) {
             var self = this;
-            this.$informUndoManager = lang.deferredCall(function() {
+            this.$syncInformUndoManager = function() {
+                self.$informUndoManager.cancel();
                 if (self.$deltas.length > 0)
                     undoManager.execute({
                         action : "aceupdate",
                         args   : [self.$deltas, self]
                     });
                 self.$deltas = [];
-            });
+            }
+            this.$informUndoManager =
+                lang.deferredCall(this.$syncInformUndoManager);
         }
     };
 
@@ -8216,18 +8604,26 @@ var EditSession = function(text, mode) {
     this.setUseWorker = function(useWorker) {
         if (this.$useWorker == useWorker)
             return;
-            
+
         if (useWorker && !this.$worker && window.Worker)
             this.$worker = mode.createWorker(this);
-            
+
         if (!useWorker && this.$worker) {
             this.$worker.terminate();
             this.$worker = null;
         }
+
+        this.$useWorker = useWorker;
     };
-    
+
     this.getUseWorker = function() {
         return this.$useWorker;
+    };
+
+    this.onReloadTokenizer = function(e) {
+        var rows = e.data;
+        this.bgTokenizer.start(rows.first);
+        this._dispatchEvent("tokenizerUpdate", e);
     };
 
     this.$mode = null;
@@ -8237,19 +8633,36 @@ var EditSession = function(text, mode) {
         if (this.$worker)
             this.$worker.terminate();
 
-        if (this.$useWorker && window.Worker && !require.noWorker)
+        if (this.$useWorker && typeof Worker !== "undefined" && !require.noWorker)
             this.$worker = mode.createWorker(this);
         else
             this.$worker = null;
+
+        var tokenizer = mode.getTokenizer();
+
+        if(tokenizer.addEventListener !== undefined) {
+            var onReloadTokenizer = this.onReloadTokenizer.bind(this);
+            tokenizer.addEventListener("update", onReloadTokenizer);
+        }
+
+        if (!this.bgTokenizer) {
+            this.bgTokenizer = new BackgroundTokenizer(tokenizer);
+            var _self = this;
+            this.bgTokenizer.addEventListener("update", function(e) {
+                _self._dispatchEvent("tokenizerUpdate", e);
+            });
+        } else {
+            this.bgTokenizer.setTokenizer(tokenizer);
+        }
+
+        this.bgTokenizer.setDocument(this.getDocument());
+        this.bgTokenizer.start(0);
 
         this.$mode = mode;
         this._dispatchEvent("changeMode");
     };
 
     this.getMode = function() {
-        if (!this.$mode) {
-            this.$mode = new TextMode();
-        }
         return this.$mode;
     };
 
@@ -8282,17 +8695,27 @@ var EditSession = function(text, mode) {
             var lines = this.doc.getAllLines();
             var longestLine = 0;
             var longestScreenLine = 0;
-            var tabSize = this.getTabSize();
 
             for ( var i = 0; i < lines.length; i++) {
-                var len = lines[i].length;
-                longestLine = Math.max(longestLine, len);
+                var foldLine = this.getFoldLine(i),
+                    line, len;
 
-                lines[i].replace(/\t/g, function(m) {
-                    len += tabSize-1;
-                    return m;
-                });
-                longestScreenLine = Math.max(longestScreenLine, len);
+                line = lines[i];
+                if (foldLine) {
+                    var end = foldLine.range.end;
+                    line = this.getFoldDisplayLine(foldLine);
+                    // Continue after the foldLine.end.row. All the lines in
+                    // between are folded.
+                    i = end.row;
+                }
+                len = line.length;
+                longestLine = Math.max(longestLine, len);
+                if (!this.$useWrapMode) {
+                    longestScreenLine = Math.max(
+                        longestScreenLine,
+                        this.$getStringScreenWidth(line)[0]
+                    );
+                }
             }
             this.width = longestLine;
 
@@ -8309,14 +8732,6 @@ var EditSession = function(text, mode) {
      */
     this.getLine = function(row) {
         return this.doc.getLine(row);
-    };
-
-    /**
-     * Get a line as it is displayed on screen. Tabs are replaced by spaces.
-     */
-    this.getDisplayLine = function(row) {
-        var tab = new Array(this.getTabSize()+1).join(" ");
-        return this.doc.getLine(row).replace(/\t/g, tab);
     };
 
     this.getLines = function(firstRow, lastRow) {
@@ -8436,10 +8851,20 @@ var EditSession = function(text, mode) {
             return;
 
         this.$fromUndo = true;
-        this.doc.revertDeltas(deltas);
+        var lastUndoRange = null;
+        for (var i = deltas.length - 1; i != -1; i--) {
+            delta = deltas[i];
+            if (delta.group == "doc") {
+                this.doc.revertDeltas(delta.deltas);
+                lastUndoRange =
+                    this.$setUndoSelection(delta.deltas, true, lastUndoRange);
+            } else {
+                delta.deltas.forEach(function(foldDelta) {
+                    this.addFolds(foldDelta.folds);
+                }, this);
+            }
+        }
         this.$fromUndo = false;
-
-        this.$setUndoSelection(deltas, true);
     },
 
     this.redoChanges = function(deltas) {
@@ -8447,58 +8872,74 @@ var EditSession = function(text, mode) {
             return;
 
         this.$fromUndo = true;
-        this.doc.applyDeltas(deltas);
+        var lastUndoRange = null;
+        for (var i = 0; i < deltas.length; i++) {
+            delta = deltas[i];
+            if (delta.group == "doc") {
+                this.doc.applyDeltas(delta.deltas);
+                lastUndoRange =
+                    this.$setUndoSelection(delta.deltas, false, lastUndoRange);
+            }
+        }
         this.$fromUndo = false;
-
-        this.$setUndoSelection(deltas, false);
     },
 
-    this.$setUndoSelection = function(deltas, isUndo) {
-        // invert deltas is they are an undo
-        if (isUndo)
-            deltas = deltas.map(function(delta) {
-                var d = {
-                    range: delta.range
+    this.$setUndoSelection = function(deltas, isUndo, lastUndoRange) {
+        function isInsert(delta) {
+            var insert =
+                delta.action == "insertText" || delta.action == "insertLines";
+            return isUndo ? !insert : insert;
+        }
+
+        var delta = deltas[0];
+        var range;
+        var lastDeltaIsInsert = false;
+        if (isInsert(delta)) {
+            range = delta.range.clone();
+            lastDeltaIsInsert = true;
+        } else {
+            range = Range.fromPoints(delta.range.start, delta.range.start);
+            lastDeltaIsInsert = false;
+        }
+
+        for (var i = 1; i < deltas.length; i++) {
+            delta = deltas[i];
+            if (isInsert(delta)) {
+                if (range.compare(delta.range.start) == -1) {
+                    range.setStart(delta.range.start);
                 }
-                if (delta.action == "insertText" || delta.action == "insertLines")
-                    d.action = "removeText"
-                else
-                    d.action = "insertText"
-                return d;
-            }).reverse();
-
-
-        var actions = [{}];
-        
-        // collapse insert and remove operations
-        for (var i=0; i<deltas.length; i++) {
-            var delta = deltas[i];
-            var isInsert = delta.action == "insertText" || delta.action == "insertLines";
-            var action = actions[actions.length-1];
-            if (action.isInsert !== isInsert) {
-                actions.push({
-                    isInsert: isInsert,
-                    start: isInsert ? delta.range.start : delta.range.end,
-                    end: isInsert ? delta.range.end : delta.range.start
-                })
-            }
-            else {
-                if (isInsert)    
-                    action.end = delta.range.end;
-                else
-                    action.start = delta.range.start;
+                if (range.compare(delta.range.end) == 1) {
+                    range.setEnd(delta.range.end);
+                }
+                lastDeltaIsInsert = true;
+            } else {
+                if (range.compare(delta.range.start) == -1) {
+                    range =
+                        Range.fromPoints(delta.range.start, delta.range.start);
+                }
+                lastDeltaIsInsert = false;
             }
         }
 
-        // update selection based on last operation
-        this.selection.clearSelection();
-        var action = actions[actions.length-1];
-        if (action.isInsert) 
-            this.selection.setSelectionRange(Range.fromPoints(action.start, action.end));
-        else 
-            this.selection.moveCursorToPosition(action.end);
+        // Check if this range and the last undo range has something in common.
+        // If true, merge the ranges.
+        if (lastUndoRange != null) {
+            var cmp = lastUndoRange.compareRange(range);
+            if (cmp == 1) {
+                range.setStart(lastUndoRange.start);
+            } else if (cmp == -1) {
+                range.setEnd(lastUndoRange.end);
+            }
+        }
+
+        if (!range.isEmpty()) {
+            this.selection.setSelectionRange(range);
+        } else {
+            this.selection.moveCursorToPosition(range.start);
+        }
+        return range;
     },
-    
+
     this.replace = function(range, text) {
         return this.doc.replace(range, text);
     };
@@ -8616,6 +9057,7 @@ var EditSession = function(text, mode) {
         if (useWrapMode != this.$useWrapMode) {
             this.$useWrapMode = useWrapMode;
             this.$modified = true;
+            this.$resetRowCache(0);
 
             // If wrapMode is activaed, the wrapData array has to be initialized.
             if (useWrapMode) {
@@ -8658,6 +9100,7 @@ var EditSession = function(text, mode) {
             this.$modified = true;
             if (this.$useWrapMode) {
                 this.$updateWrapData(0, this.getLength() - 1);
+                this.$resetRowCache(0)
                 this._dispatchEvent("changeWrapLimit");
             }
             return true;
@@ -8690,15 +9133,15 @@ var EditSession = function(text, mode) {
         };
     };
 
-    this.$updateWrapDataOnChange = function(e) {
-        if (!this.$useWrapMode) {
-            return;
-        }
-
+    this.$updateInternalDataOnChange = function(e) {
+        var useWrapMode = this.$useWrapMode;
         var len;
         var action = e.data.action;
         var firstRow = e.data.range.start.row,
-            lastRow = e.data.range.end.row;
+            lastRow = e.data.range.end.row,
+            start = e.data.range.start,
+            end = e.data.range.end;
+        var removedFolds = null;
 
         if (action.indexOf("Lines") != -1) {
             if (action == "insertLines") {
@@ -8713,20 +9156,97 @@ var EditSession = function(text, mode) {
 
         if (len != 0) {
             if (action.indexOf("remove") != -1) {
-                this.$wrapData.splice(firstRow, len);
+                useWrapMode && this.$wrapData.splice(firstRow, len);
+
+                var foldLines = this.$foldData;
+                removedFolds = this.getFoldsInRange(e.data.range);
+                this.removeFolds(removedFolds);
+
+                var foldLine = this.getFoldLine(lastRow);
+                var idx = 0;
+                if (foldLine) {
+                    foldLine.addRemoveChars(end.row, end.column, start.column - end.column);
+                    foldLine.shiftRow(-len);
+
+                    var foldLineBefore = this.getFoldLine(firstRow);
+                    if (foldLineBefore && foldLineBefore !== foldLine) {
+                        foldLineBefore.merge(foldLine);
+                        foldLine = foldLineBefore;
+                    }
+                    idx = foldLines.indexOf(foldLine) + 1;
+                }
+
+                for (idx; idx < foldLines.length; idx++) {
+                    var foldLine = foldLines[idx];
+                    if (foldLine.start.row >= lastRow) {
+                        foldLine.shiftRow(-len);
+                    }
+                }
+
                 lastRow = firstRow;
             } else {
-                var args = [firstRow, 0];
-                for (var i = 0; i < len; i++) args.push([]);
-                this.$wrapData.splice.apply(this.$wrapData, args);
+                var args;
+                if (useWrapMode) {
+                    args = [firstRow, 0];
+                    for (var i = 0; i < len; i++) args.push([]);
+                    this.$wrapData.splice.apply(this.$wrapData, args);
+                }
+
+                // If some new line is added inside of a foldLine, then split
+                // the fold line up.
+                var foldLines = this.$foldData;
+                var foldLine = this.getFoldLine(firstRow);
+                var idx = 0;
+                if (foldLine) {
+                    var cmp = foldLine.range.compareInside(start.row, start.column)
+                    // Inside of the foldLine range. Need to split stuff up.
+                    if (cmp == 0) {
+                        foldLine = foldLine.split(start.row, start.column);
+                        foldLine.shiftRow(len);
+                        foldLine.addRemoveChars(
+                            lastRow, 0, end.column - start.column);
+                    } else
+                    // Infront of the foldLine but same row. Need to shift column.
+                    if (cmp == -1) {
+                        foldLine.addRemoveChars(firstRow, 0, end.column - start.column);
+                        foldLine.shiftRow(len);
+                    }
+                    // Nothing to do if the insert is after the foldLine.
+                    idx = foldLines.indexOf(foldLine) + 1;
+                }
+
+                for (idx; idx < foldLines.length; idx++) {
+                    var foldLine = foldLines[idx];
+                    if (foldLine.start.row >= firstRow) {
+                        foldLine.shiftRow(len);
+                    }
+                }
+            }
+        } else {
+            // Realign folds. E.g. if you add some new chars before a fold, the
+            // fold should "move" to the right.
+            var column;
+            len = Math.abs(e.data.range.start.column - e.data.range.end.column);
+            if (action.indexOf("remove") != -1) {
+                // Get all the folds in the change range and remove them.
+                removedFolds = this.getFoldsInRange(e.data.range);
+                this.removeFolds(removedFolds);
+
+                len = -len;
+            }
+            var foldLine = this.getFoldLine(firstRow);
+            if (foldLine) {
+                foldLine.addRemoveChars(firstRow, start.column, len);
             }
         }
 
-        if (this.$wrapData.length != this.doc.$lines.length) {
+        if (useWrapMode && this.$wrapData.length != this.doc.$lines.length) {
             console.error("The length of doc.$lines and $wrapData have to be the same!");
         }
 
-        this.$updateWrapData(firstRow, lastRow);
+        useWrapMode && this.$updateWrapData(firstRow, lastRow);
+
+        return removedFolds;
     };
 
     this.$updateWrapData = function(firstRow, lastRow) {
@@ -8734,29 +9254,67 @@ var EditSession = function(text, mode) {
         var tabSize = this.getTabSize();
         var wrapData = this.$wrapData;
         var wrapLimit = this.$wrapLimit;
+        var tokens;
+        var foldLine;
 
-        for (var row = firstRow; row <= lastRow; row++) {
+        var row = firstRow;
+        lastRow = Math.min(lastRow, lines.length - 1);
+        while (row <= lastRow) {
+            foldLine = this.getFoldLine(row);
+            if (!foldLine) {
+                tokens = this.$getDisplayTokens(lang.stringTrimRight(lines[row]));
+            } else {
+                tokens = [];
+                foldLine.walk(
+                    function(placeholder, row, column, lastColumn) {
+                        var walkTokens;
+                        if (placeholder) {
+                            walkTokens = this.$getDisplayTokens(
+                                            placeholder, tokens.length);
+                            walkTokens[0] = PLACEHOLDER_START;
+                            for (var i = 1; i < walkTokens.length; i++) {
+                                walkTokens[i] = PLACEHOLDER_BODY;
+                            }
+                        } else {
+                            walkTokens = this.$getDisplayTokens(
+                                lines[row].substring(lastColumn, column),
+                                tokens.length);
+                        }
+                        tokens = tokens.concat(walkTokens);
+                    }.bind(this),
+                    foldLine.end.row,
+                    lines[foldLine.end.row].length + 1
+                );
+                // Remove spaces/tabs from the back of the token array.
+                while (tokens.length != 0
+                    && tokens[tokens.length - 1] >= SPACE)
+                {
+                    tokens.pop();
+                }
+            }
             wrapData[row] =
-                this.$computeWrapSplits(lines[row], wrapLimit, tabSize);
+                this.$computeWrapSplits(tokens, wrapLimit, tabSize);
+
+            row = this.getRowFoldEnd(row) + 1;
         }
     };
 
     // "Tokens"
     var CHAR = 1,
         CHAR_EXT = 2,
-        SPACE = 3,
-        TAB = 4,
-        TAB_SPACE = 5;
+        PLACEHOLDER_START = 3,
+        PLACEHOLDER_BODY =  4,
+        SPACE = 10,
+        TAB = 11,
+        TAB_SPACE = 12;
 
-    this.$computeWrapSplits = function(textLine, wrapLimit, tabSize) {
-        textLine = textLine.trimRight();
-        if (textLine.length == 0) {
+    this.$computeWrapSplits = function(tokens, wrapLimit, tabSize) {
+        if (tokens.length == 0) {
             return [];
         }
 
         var tabSize = this.getTabSize();
         var splits = [];
-        var tokens = this.$getDisplayTokens(textLine);
         var displayLength = tokens.length;
         var lastSplit = 0, lastDocSplit = 0;
 
@@ -8767,11 +9325,11 @@ var EditSession = function(text, mode) {
             // and multipleWidth characters.
             var len = displayed.length;
             displayed.join("").
-                // Get all the tabs.
-                replace(/4/g, function(m) {
-                    len -= tabSize - 1;
+                // Get all the TAB_SPACEs.
+                replace(/12/g, function(m) {
+                    len -= 1;
                 }).
-                // Get all the multipleWidth characters.
+                // Get all the CHAR_EXT/multipleWidth characters.
                 replace(/2/g, function(m) {
                     len -= 1;
                 });
@@ -8785,59 +9343,113 @@ var EditSession = function(text, mode) {
             // This is, where the split should be.
             var split = lastSplit + wrapLimit;
 
-            // If there is a space or tab at this split position.
+            // If there is a space or tab at this split position, then making
+            // a split is simple.
             if (tokens[split] >= SPACE) {
                 // Include all following spaces + tabs in this split as well.
                 while (tokens[split] >= SPACE)  {
                     split ++;
                 }
                 addSplit(split);
-            } else {
-                // Search for the first non space/tab token.
+                continue;
+            }
+
+            // === ELSE ===
+            // Check if split is inside of a placeholder. Placeholder are
+            // not splitable. Therefore, seek the beginning of the placeholder
+            // and try to place the split beofre the placeholder's start.
+            if (tokens[split] == PLACEHOLDER_START
+                || tokens[split] == PLACEHOLDER_BODY)
+            {
+                // Seek the start of the placeholder and do the split
+                // before the placeholder. By definition there always
+                // a PLACEHOLDER_START between split and lastSplit.
                 for (split; split != lastSplit - 1; split--) {
-                    if (tokens[split] >= SPACE) {
-                        split++;
+                    if (tokens[split] == PLACEHOLDER_START) {
+                        // split++; << No incremental here as we want to
+                        //  have the position before the Placeholder.
                         break;
                     }
                 }
-                // If we found one, then add the split.
+
+                // If the PLACEHOLDER_START is not the index of the
+                // last split, then we can do the split
                 if (split > lastSplit) {
                     addSplit(split);
+                    continue;
                 }
-                // No space or tab around? Well, force a split then.
-                else {
-                    addSplit(lastSplit + wrapLimit);
+
+                // If the PLACEHOLDER_START IS the index of the last
+                // split, then we have to place the split after the
+                // placeholder. So, let's seek for the end of the placeholder.
+                split = lastSplit + wrapLimit;
+                for (split; split < tokens.length; split++) {
+                    if (tokens[split] != PLACEHOLDER_BODY)
+                    {
+                        break;
+                    }
+                }
+
+                // If spilt == tokens.length, then the placeholder is the last
+                // thing in the line and adding a new split doesn't make sense.
+                if (split == tokens.length) {
+                    break;  // Breaks the while-loop.
+                }
+
+                // Finally, add the split...
+                addSplit(split);
+                continue;
+            }
+
+            // === ELSE ===
+            // Search for the first non space/tab/placeholder token backwards.
+            for (split; split != lastSplit - 1; split--) {
+                if (tokens[split] >= PLACEHOLDER_START) {
+                    split++;
+                    break;
                 }
             }
+            // If we found one, then add the split.
+            if (split > lastSplit) {
+                addSplit(split);
+                continue;
+            }
+
+            // === ELSE ===
+            split = lastSplit + wrapLimit;
+            // The split is inside of a CHAR or CHAR_EXT token and no space
+            // around -> force a split.
+            addSplit(lastSplit + wrapLimit);
         }
         return splits;
     }
 
-    this.$getDisplayTokens = function(str) {
+    /**
+     * @param
+     *   offset: The offset in screenColumn at which position str starts.
+     *           Important for calculating the realTabSize.
+     */
+    this.$getDisplayTokens = function(str, offset) {
         var arr = [];
-        var tabSize = this.getTabSize();
+        var tabSize;
+        offset = offset || 0;
 
         for (var i = 0; i < str.length; i++) {
-			var c = str.charCodeAt(i);
-			// Tab
-			if (c == 9) {
-			    arr.push(TAB);
-			    for (var n = 1; n < tabSize; n++) {
-			        arr.push(TAB_SPACE);
-			    }
-			}
-			// Space
-			else if(c == 32) {
-			    arr.push(SPACE);
-			}
-    		// CJK characters
-            else if (
-                c >= 0x3040 && c <= 0x309F || // Hiragana
-                c >= 0x30A0 && c <= 0x30FF || // Katakana
-                c >= 0x4E00 && c <= 0x9FFF || // Single CJK ideographs
-                c >= 0xF900 && c <= 0xFAFF ||
-                c >= 0x3400 && c <= 0x4DBF
-            ) {
+            var c = str.charCodeAt(i);
+            // Tab
+            if (c == 9) {
+                tabSize = this.getScreenTabSize(arr.length + offset);
+                arr.push(TAB);
+                for (var n = 1; n < tabSize; n++) {
+                    arr.push(TAB_SPACE);
+                }
+            }
+            // Space
+            else if(c == 32) {
+                arr.push(SPACE);
+            }
+            // full width characters
+            else if (isFullWidth(c)) {
                 arr.push(CHAR, CHAR_EXT);
             } else {
                 arr.push(CHAR);
@@ -8851,90 +9463,68 @@ var EditSession = function(text, mode) {
      * the string starts at the first column on the screen.
      *
      * @param string str String to calculate the screen width of
-     * @return int number of columns for str on screen.
+     * @return array
+     *      [0]: number of columns for str on screen.
+     *      [1]: docColumn position that was read until (useful with screenColumn)
      */
-    this.$getStringScreenWidth = function(str) {
-        var screenColumn = 0;
-        var tabSize = this.getTabSize();
-		
-		for (var i=0; i<str.length; i++) {
-			var c = str.charCodeAt(i);
-			// tab
-			if (c == 9) {
-				screenColumn += tabSize;
-			}
-    		// CJK characters
-            else if (
-                c >= 0x3040 && c <= 0x309F || // Hiragana
-                c >= 0x30A0 && c <= 0x30FF || // Katakana
-                c >= 0x4E00 && c <= 0x9FFF || // Single CJK ideographs
-                c >= 0xF900 && c <= 0xFAFF ||
-                c >= 0x3400 && c <= 0x4DBF
-            ) {
-            	screenColumn += 2;
-			} else {
-				screenColumn += 1;
-			}
-		}
-		
-		return screenColumn;
+    this.$getStringScreenWidth = function(str, maxScreenColumn, screenColumn) {
+        if (maxScreenColumn == 0) {
+            return [0, 0];
+        }
+        if (maxScreenColumn == null) {
+            maxScreenColumn = screenColumn +
+                str.length * Math.max(this.getTabSize(), 2);
+        }
+        screenColumn = screenColumn || 0;
+
+        var c, column;
+        for (column = 0; column < str.length; column++) {
+            c = str.charCodeAt(column);
+            // tab
+            if (c == 9) {
+                screenColumn += this.getScreenTabSize(screenColumn);
+            }
+            // full width characters
+            else if (isFullWidth(c)) {
+                screenColumn += 2;
+            } else {
+                screenColumn += 1;
+            }
+            if (screenColumn > maxScreenColumn) {
+                break
+            }
+        }
+
+        return [screenColumn, column];
+    }
+
+    this.getRowLength = function(row) {
+        if (!this.$useWrapMode || !this.$wrapData[row]) {
+            return 1;
+        } else {
+            return this.$wrapData[row].length + 1;
+        }
     }
 
     this.getRowHeight = function(config, row) {
-        var rows;
-        if (!this.$useWrapMode || !this.$wrapData[row]) {
-            rows = 1;
-        } else {
-            rows = this.$wrapData[row].length + 1;
-        }
-
-        return rows * config.lineHeight;
+        return this.getRowLength(row) * config.lineHeight;
     }
 
-    this.getScreenLastRowColumn = function(screenRow, returnDocPosition) {
-        if (!this.$useWrapMode) {
-            return this.$getStringScreenWidth(this.getLine(screenRow));
-        }
-
-        var rowData = this.$screenToDocumentRow(screenRow);
-        var docRow = rowData[0],
-            row = rowData[1];
-
-        var start, end;
-        if (this.$wrapData[docRow][row]) {
-            start = (this.$wrapData[docRow][row - 1] || 0);
-            end = this.$wrapData[docRow][row];
-            returnDocPosition && end--;
-        } else {
-            end = this.getLine(docRow).length;
-            start = (this.$wrapData[docRow][row - 1] || 0);
-        }
-        if (!returnDocPosition) {
-            return this.$getStringScreenWidth(this.getLine(docRow).substring(start, end));
-        } else {
-            return end;
-        }
+    this.getScreenLastRowColumn = function(screenRow) {
+        // Note: This won't work if someone has more then
+        // 1.7976931348623158e+307 characters in one row. But I think we can
+        // live with this limitation ;)
+        return this.screenToDocumentColumn(screenRow, Number.MAX_VALUE / 10)
     };
 
     this.getDocumentLastRowColumn = function(docRow, docColumn) {
-        if (!this.$useWrapMode) {
-            return this.getLine(docRow).length;
-        }
-
         var screenRow = this.documentToScreenRow(docRow, docColumn);
-        return this.getScreenLastRowColumn(screenRow, true);
-    }
+        return this.getScreenLastRowColumn(screenRow);
+    };
 
-    this.getScreenFirstRowColumn = function(screenRow) {
-        if (!this.$useWrapMode) {
-            return 0;
-        }
-
-        var rowData = this.$screenToDocumentRow(screenRow);
-        var docRow = rowData[0],
-            row = rowData[1];
-
-        return this.$wrapData[docRow][row - 1] || 0;
+    this.getDocumentLastRowColumnPosition = function(docRow, docColumn) {
+        var screenRow = this.documentToScreenRow(docRow, docColumn);
+        return this.screenToDocumentPosition(screenRow, Number.MAX_VALUE / 10);
     };
 
     this.getRowSplitData = function(row) {
@@ -8946,115 +9536,192 @@ var EditSession = function(text, mode) {
     };
 
     /**
-     *
-     * @returns array
-     * - array[0]: The documentRow equivalent.
-     * - array[1]: The screenRowOffset to the first documentRow on the screen.
+     * Returns the width of a tab character at screenColumn.
      */
-    this.$screenToDocumentRow = function(row) {
-        if (!this.$useWrapMode) {
-            return [row, 0];
-        }
-
-        var wrapData = this.$wrapData, linesCount = this.getLength();
-        var docRow = 0;
-        while (docRow < linesCount && row >= wrapData[docRow].length + 1) {
-            row -= wrapData[docRow].length + 1;
-            docRow ++;
-        }
-
-        return [docRow, row];
+    this.getScreenTabSize = function(screenColumn) {
+        return this.$tabSize - screenColumn % this.$tabSize;
     };
 
-    this.screenToDocumentRow = function(screenRow) {
-        return this.$screenToDocumentRow(screenRow)[0];
+    this.screenToDocumentRow = function(screenRow, screenColumn) {
+        return this.screenToDocumentPosition(screenRow, screenColumn).row;
     };
 
     this.screenToDocumentColumn = function(screenRow, screenColumn) {
         return this.screenToDocumentPosition(screenRow, screenColumn).column;
     };
 
-    this.screenToDocumentPosition = function(row, column) {
+    this.screenToDocumentPosition = function(screenRow, screenColumn) {
         var line;
-        var docRow;
-        var docColumn;
-        var remaining = column;
-        var linesCount = this.getLength();
-        if (!this.$useWrapMode) {
-            docRow = row >= linesCount? linesCount-1 : (row < 0 ? 0 : row);
-            row = 0;
-            docColumn = 0;
-            line = this.getLine(docRow);
-        } else {
-            var wrapData = this.$wrapData;
+        var docRow = 0;
+        var docColumn = 0;
+        var column;
+        var foldLine;
+        var foldLineRowLength;
+        var row = 0;
+        var rowLength = 0;
+        var splits = null;
+        var split = 0;
 
-			var docRow = 0;
-			while (docRow < linesCount && row >= wrapData[docRow].length + 1) {
-				row -= wrapData[docRow].length + 1;
-				docRow ++;
-			}
-
-            if (docRow >= linesCount) {
-                docRow = linesCount-1
-				row = wrapData[docRow].length;
+        var rowCache = this.$rowCache;
+        var doCache = !rowCache.length;
+        for (var i = 0; i < rowCache.length; i++) {
+            if (rowCache[i].screenRow < screenRow) {
+                row = rowCache[i].screenRow;
+                docRow = rowCache[i].docRow;
+                doCache = i == rowCache.length - 1;
             }
-            docColumn = wrapData[docRow][row - 1] || 0;
-            line = this.getLine(docRow).substring(docColumn);
         }
+        var docRowCacheLast = docRow;
 
-        var tabSize = this.getTabSize();
-        for(var i = 0; i < line.length; i++) {
-            var c = line.charCodeAt(i);
-
-            if (remaining > 0) {
-                docColumn += 1;
-                // tab
-                if (c == 9) {
-                    if (remaining >= tabSize) {
-                        remaining -= tabSize;
-                    } else {
-                        remaining = 0;
-                        docColumn -= 1;
-                    }
-                }
-                // CJK characters
-                else if (
-                    c >= 0x3040 && c <= 0x309F || // Hiragana
-                    c >= 0x30A0 && c <= 0x30FF || // Katakana
-                    c >= 0x4E00 && c <= 0x9FFF || // Single CJK ideographs
-                    c >= 0xF900 && c <= 0xFAFF ||
-                    c >= 0x3400 && c <= 0x4DBF
-                ) {
-                    if (remaining >= 2) {
-                        remaining -= 2;
-                    } else {
-                        remaining = 0;
-                        docColumn -= 1;
-                    }
-                } else {
-                    remaining -= 1;
-                }
-            } else {
+        while (row <= screenRow) {
+            if (doCache
+                && docRow - docRowCacheLast > this.$rowCacheSize) {
+                rowCache.push({
+                    docRow: docRow,
+                    screenRow: row
+                });
+                docRowCacheLast = docRow;
+            }
+            rowLength = this.getRowLength(docRow);
+            if (row + rowLength - 1 >= screenRow) {
                 break;
+            } else {
+                row += rowLength;
+                docRow = this.getRowFoldEnd(docRow) + 1;
             }
         }
 
-        // Clamp docColumn.
+        splits = this.$wrapData[docRow] || [];
+        foldLine = this.getFoldLine(docRow);
+        line = foldLine
+                ? this.getFoldDisplayLine(foldLine)
+                : this.getLine(docRow);
+
         if (this.$useWrapMode) {
-            column = wrapData[docRow][row]
-			if (docColumn >= column) {
+            docColumn = split = splits[screenRow - row - 1] || 0;
+            line = line.substring(split);
+        }
+
+        docColumn += this.$getStringScreenWidth(line, screenColumn)[1];
+
+        // Need to do some clamping action here.
+        if (this.$useWrapMode) {
+            column = splits[screenRow - row]
+            if (docColumn >= column) {
                 // We remove one character at the end such that the docColumn
                 // position returned is not associated to the next row on the
                 // screen.
                 docColumn = column - 1;
             }
-        } else if (line) {
-             docColumn = Math.min(docColumn, line.length);
+        } else {
+            docColumn = Math.min(docColumn, line.length);
+        }
+
+        if (foldLine) {
+            return foldLine.idxToPosition(docColumn);
         }
 
         return {
             row: docRow,
             column: docColumn
+        }
+    };
+
+    this.documentToScreenPosition = function(docRow, docColumn) {
+        // Normalize the passed in arguments.
+        if (docColumn == null) {
+            docColumn = docRow.column;
+            docRow = docRow.row;
+        }
+
+        var wrapData;
+
+        // Special case in wrapMode if the doc is at the end of the document.
+        if (this.$useWrapMode) {
+            wrapData = this.$wrapData;
+            if (docRow > wrapData.length - 1) {
+                return {
+                    row: this.getScreenLength(),
+                    column: wrapData.length == 0
+                        ? 0
+                        : (wrapData[wrapData.length - 1].length - 1)
+                };
+            }
+        }
+
+        var screenRow = 0,
+            screenColumn = 0,
+            foldStartRow = null,
+            fold = null,
+            folds,
+            comp,
+            foldLine = null;
+
+        // Clamp the docRow position in case it's inside of a folded block.
+        fold = this.getFoldAt(docRow, docColumn, 1);
+        if (fold) {
+            docRow = fold.start.row;
+            docColumn = fold.start.column;
+        }
+
+        var rowEnd, row = 0;
+        var rowCache = this.$rowCache;
+        //
+        var doCache = !rowCache.length;
+        for (var i = 0; i < rowCache.length; i++) {
+            if (rowCache[i].docRow < docRow) {
+                screenRow = rowCache[i].screenRow;
+                row = rowCache[i].docRow;
+                doCache = i == rowCache.length - 1;
+            }
+        }
+        var docRowCacheLast = row;
+
+        while (row < docRow) {
+            if (doCache
+                && row - docRowCacheLast > this.$rowCacheSize) {
+                rowCache.push({
+                    docRow: row,
+                    screenRow: screenRow
+                });
+                docRowCacheLast = row;
+            }
+
+            rowEnd = this.getRowFoldEnd(row);
+            if (rowEnd >= docRow) {
+                break;
+            }
+            screenRow += this.getRowLength(row);
+            row = rowEnd + 1;
+        }
+
+        // Calculate the text line that is displayed in docRow on the screen.
+        var textLine = "";
+        foldLine = this.getFoldLine(docRow);
+        // Check if the final row we want to reach is inside of a fold.
+        if (!foldLine) {
+            textLine = this.getLine(docRow).substring(0, docColumn);
+            foldStartRow = docRow;
+        } else {
+            textLine = this.getFoldDisplayLine(foldLine, docRow, docColumn);
+            foldStartRow = foldLine.start.row;
+        }
+
+        // Clamp textLine if in wrapMode.
+        if (this.$useWrapMode) {
+            var wrapRow = wrapData[foldStartRow];
+            var screenRowOffset = 0;
+            while (textLine.length >= wrapRow[screenRowOffset]) {
+                screenRow ++;
+                screenRowOffset++;
+            }
+            textLine = textLine.substring(
+                wrapRow[screenRowOffset - 1] || 0,  textLine.length);
+        }
+
+        return {
+            row: screenRow,
+            column: this.$getStringScreenWidth(textLine)[0]
         };
     };
 
@@ -9062,110 +9729,75 @@ var EditSession = function(text, mode) {
         return this.documentToScreenPosition(row, docColumn).column;
     };
 
-    /**
-     *
-     * @return array[2]
-     * - array[0]: The number of the row on the screen (aka screenRow)
-     * - array[1]: The number of rows from the first docRow on the screen
-     *              (aka screenRowOffset);
-     */
-    this.$documentToScreenRow = function(docRow, docColumn) {
-        if (!this.$useWrapMode) {
-            return [docRow, 0];
-        }
-
-        var wrapData = this.$wrapData;
-        var screenRow = 0;
-
-        // Handle special case where the row is outside of the range of lines.
-        if (docRow > wrapData.length - 1) {
-            return [
-                this.getScreenLength(),
-                wrapData.length == 0 ? 0 : (wrapData[wrapData.length - 1].length - 1)
-            ];
-        }
-
-        for (var i = 0; i < docRow; i++) {
-            screenRow += wrapData[i].length + 1;
-        }
-
-        var screenRowOffset = 0;
-        while (docColumn >= wrapData[docRow][screenRowOffset]) {
-            screenRow ++;
-            screenRowOffset++;
-        }
-
-        return [screenRow, screenRowOffset];
-    }
-
     this.documentToScreenRow = function(docRow, docColumn) {
-        return this.$documentToScreenRow(docRow, docColumn)[0];
-    }
-
-    this.documentToScreenPosition = function(pos, column) {
-        var str;
-        var tabSize = this.getTabSize();
-
-        // Normalize the passed in arguments.
-        var row;
-        if (column != null) {
-            row = pos;
-        } else {
-            row = pos.row;
-            column = pos.column;
-        }
-
-        if (!this.$useWrapMode) {
-            str = this.getLine(row).substring(0, column);
-            column = this.$getStringScreenWidth(str);
-            return {
-                row: row,
-                column: column
-            };
-        }
-
-        var rowData = this.$documentToScreenRow(row, column);
-        var screenRow = rowData[0];
-
-        if (row >= this.getLength()) {
-            return {
-                row: screenRow,
-                column: 0
-            };
-        }
-
-        var split;
-        var wrapRowData = this.$wrapData[row];
-        var screenColumn;
-        var screenRowOffset = rowData[1];
-
-        str = this.getLine(row).substring(
-                wrapRowData[screenRowOffset - 1] || 0,  column);
-        screenColumn = this.$getStringScreenWidth(str);
-
-        return {
-            row: screenRow,
-            column: screenColumn
-        };
+        return this.documentToScreenPosition(docRow, docColumn).row;
     };
 
     this.getScreenLength = function() {
+        var length = this.getLength();
+        var screenRows = 0;
         if (!this.$useWrapMode) {
-            return this.getLength();
+            screenRows = length;
+        } else {
+            for (var row = 0; row < this.$wrapData.length; row++) {
+                screenRows += this.$wrapData[row].length + 1;
+            }
         }
 
-        var screenRows = 0;
-        for (var row = 0; row < this.$wrapData.length; row++) {
-            screenRows += this.$wrapData[row].length + 1;
+        var foldData = this.$foldData;
+        for (var i = 0; i < foldData.length; i++) {
+            var foldLine = foldData[i];
+            screenRows -= foldLine.end.row - foldLine.start.row;
         }
         return screenRows;
     }
 
+    // For every keystroke this gets called once per char in the whole doc!!
+    // Wouldn't hurt to make it a bit faster for c >= 0x1100
+    function isFullWidth(c) {
+        if (c < 0x1100)
+            return false;
+        return c >= 0x1100 && c <= 0x115F ||
+               c >= 0x11A3 && c <= 0x11A7 ||
+               c >= 0x11FA && c <= 0x11FF ||
+               c >= 0x2329 && c <= 0x232A ||
+               c >= 0x2E80 && c <= 0x2E99 ||
+               c >= 0x2E9B && c <= 0x2EF3 ||
+               c >= 0x2F00 && c <= 0x2FD5 ||
+               c >= 0x2FF0 && c <= 0x2FFB ||
+               c >= 0x3000 && c <= 0x303E ||
+               c >= 0x3041 && c <= 0x3096 ||
+               c >= 0x3099 && c <= 0x30FF ||
+               c >= 0x3105 && c <= 0x312D ||
+               c >= 0x3131 && c <= 0x318E ||
+               c >= 0x3190 && c <= 0x31BA ||
+               c >= 0x31C0 && c <= 0x31E3 ||
+               c >= 0x31F0 && c <= 0x321E ||
+               c >= 0x3220 && c <= 0x3247 ||
+               c >= 0x3250 && c <= 0x32FE ||
+               c >= 0x3300 && c <= 0x4DBF ||
+               c >= 0x4E00 && c <= 0xA48C ||
+               c >= 0xA490 && c <= 0xA4C6 ||
+               c >= 0xA960 && c <= 0xA97C ||
+               c >= 0xAC00 && c <= 0xD7A3 ||
+               c >= 0xD7B0 && c <= 0xD7C6 ||
+               c >= 0xD7CB && c <= 0xD7FB ||
+               c >= 0xF900 && c <= 0xFAFF ||
+               c >= 0xFE10 && c <= 0xFE19 ||
+               c >= 0xFE30 && c <= 0xFE52 ||
+               c >= 0xFE54 && c <= 0xFE66 ||
+               c >= 0xFE68 && c <= 0xFE6B ||
+               c >= 0xFF01 && c <= 0xFF60 ||
+               c >= 0xFFE0 && c <= 0xFFE6;
+    };
+
 }).call(EditSession.prototype);
+
+require("ace/edit_session/folding").Folding.call(EditSession.prototype);
 
 exports.EditSession = EditSession;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/selection'), ['pilot/oop','pilot/lang','pilot/event_emitter','ace/range'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/selection'), ['pilot/oop','pilot/lang','pilot/event_emitter','ace/range'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -9180,7 +9812,7 @@ var Selection = function(session) {
     this.clearSelection();
     this.selectionLead = this.doc.createAnchor(0, 0);
     this.selectionAnchor = this.doc.createAnchor(0, 0);
-    
+
     var _self = this;
     this.selectionLead.on("change", function(e) {
         _self._dispatchEvent("changeCursor");
@@ -9189,7 +9821,7 @@ var Selection = function(session) {
         if (e.old.row == e.value.row)
             _self.$updateDesiredColumn();
     });
-    
+
     this.selectionAnchor.on("change", function() {
         if (!_self.$isEmpty)
             _self._dispatchEvent("changeSelection");
@@ -9377,9 +10009,19 @@ var Selection = function(session) {
     };
 
     this.selectLine = function() {
-        this.setSelectionAnchor(this.selectionLead.row, 0);
+        var rowStart = this.selectionLead.row;
+        var rowEnd;
+
+        var foldLine = this.session.getFoldLine(rowStart);
+        if (foldLine) {
+            rowStart = foldLine.start.row;
+            rowEnd = foldLine.end.row;
+        } else {
+            rowEnd = rowStart;
+        }
+        this.setSelectionAnchor(rowStart, 0);
         this.$moveSelection(function() {
-            this.moveCursorTo(this.selectionLead.row + 1, 0);
+            this.moveCursorTo(rowEnd + 1, 0);
         });
     };
 
@@ -9392,8 +10034,12 @@ var Selection = function(session) {
     };
 
     this.moveCursorLeft = function() {
-        var cursor = this.selectionLead.getPosition();
-        if (cursor.column == 0) {
+        var cursor = this.selectionLead.getPosition(),
+            fold;
+
+        if (fold = this.session.getFoldAt(cursor.row, cursor.column, -1)) {
+            this.moveCursorTo(fold.start.row, fold.start.column);
+        } else if (cursor.column == 0) {
             // cursor is a line (start
             if (cursor.row > 0) {
                 this.moveCursorTo(cursor.row - 1, this.doc.getLine(cursor.row - 1).length);
@@ -9409,7 +10055,11 @@ var Selection = function(session) {
     };
 
     this.moveCursorRight = function() {
-        if (this.selectionLead.column == this.doc.getLine(this.selectionLead.row).length) {
+        var cursor = this.selectionLead.getPosition(),
+            fold;
+        if (fold = this.session.getFoldAt(cursor.row, cursor.column, 1)) {
+            this.moveCursorTo(fold.end.row, fold.end.column);
+        } else if (this.selectionLead.column == this.doc.getLine(this.selectionLead.row).length) {
             if (this.selectionLead.row < this.doc.getLength() - 1) {
                 this.moveCursorTo(this.selectionLead.row + 1, 0);
             }
@@ -9428,25 +10078,38 @@ var Selection = function(session) {
         var row = this.selectionLead.row;
         var column = this.selectionLead.column;
         var screenRow = this.session.documentToScreenRow(row, column);
-        var firstRowColumn = this.session.getScreenFirstRowColumn(screenRow);
-        var beforeCursor = this.doc.getLine(row).slice(firstRowColumn, column);
+
+        // Determ the doc-position of the first character at the screen line.
+        var firstColumnPosition =
+            this.session.screenToDocumentPosition(screenRow, 0);
+
+        // Determ the string "before" the cursor.
+        var beforeCursor = this.session.getDisplayLine(
+                row, column,
+                firstColumnPosition.row, firstColumnPosition.column);
+
+        //
         var leadingSpace = beforeCursor.match(/^\s*/);
-        if (leadingSpace[0].length == 0) {
-            var lastRowColumn = this.session.getDocumentLastRowColumn(row, column);
-            leadingSpace = this.doc.getLine(row).
-                                substring(firstRowColumn, lastRowColumn).
-                                match(/^\s*/);
-            this.moveCursorTo(row, firstRowColumn + leadingSpace[0].length);
-        } else if (leadingSpace[0].length >= column) {
-            this.moveCursorTo(row, firstRowColumn);
+        if (leadingSpace[0].length == 0
+            || leadingSpace[0].length >= column - firstColumnPosition.column)
+        {
+            this.moveCursorTo(
+                firstColumnPosition.row, firstColumnPosition.column);
         } else {
-            this.moveCursorTo(row, firstRowColumn + leadingSpace[0].length);
+            this.moveCursorTo(
+                firstColumnPosition.row,
+                firstColumnPosition.column + leadingSpace[0].length);
         }
     };
 
     this.moveCursorLineEnd = function() {
         var lead = this.selectionLead;
-        this.moveCursorTo(lead.row, this.session.getDocumentLastRowColumn(lead.row, lead.column));
+        var lastRowColumnPosition =
+            this.session.getDocumentLastRowColumnPosition(lead.row, lead.column);
+        this.moveCursorTo(
+            lastRowColumnPosition.row,
+            lastRowColumnPosition.column
+        );
     };
 
     this.moveCursorFileEnd = function() {
@@ -9469,7 +10132,11 @@ var Selection = function(session) {
         this.session.nonTokenRe.lastIndex = 0;
         this.session.tokenRe.lastIndex = 0;
 
-        if (column == line.length) {
+        var fold;
+        if (fold = this.session.getFoldAt(row, column, 1)) {
+            this.moveCursorTo(fold.end.row, fold.end.column);
+            return;
+        } else if (column == line.length) {
             this.moveCursorRight();
             return;
         }
@@ -9488,18 +10155,29 @@ var Selection = function(session) {
     this.moveCursorWordLeft = function() {
         var row = this.selectionLead.row;
         var column = this.selectionLead.column;
-        var line = this.doc.getLine(row);
-        var leftOfCursor = lang.stringReverse(line.substring(0, column));
 
-        var match;
-        this.session.nonTokenRe.lastIndex = 0;
-        this.session.tokenRe.lastIndex = 0;
+        var fold;
+        if (fold = this.session.getFoldAt(row, column, -1)) {
+            this.moveCursorTo(fold.start.row, fold.start.column);
+            return;
+        }
 
         if (column == 0) {
             this.moveCursorLeft();
             return;
         }
-        else if (match = this.session.nonTokenRe.exec(leftOfCursor)) {
+
+        var str = this.session.getFoldStringAt(row, column, -1);
+        if (str == null) {
+            str = this.doc.getLine(row).substring(0, column)
+        }
+        var leftOfCursor = lang.stringReverse(str);
+
+        var match;
+        this.session.nonTokenRe.lastIndex = 0;
+        this.session.tokenRe.lastIndex = 0;
+
+        if (match = this.session.nonTokenRe.exec(leftOfCursor)) {
             column -= this.session.nonTokenRe.lastIndex;
             this.session.nonTokenRe.lastIndex = 0;
         }
@@ -9512,19 +10190,14 @@ var Selection = function(session) {
     };
 
     this.moveCursorBy = function(rows, chars) {
-        if (this.session.getUseWrapMode()) {
-            var screenPos = this.session.documentToScreenPosition(
-                this.selectionLead.row, 
-                this.selectionLead.column
-            );
-            var screenCol = (chars == 0 && this.$desiredColumn) || screenPos.column;
-            var docPos = this.session.screenToDocumentPosition(screenPos.row + rows, screenCol);
-            
-            this.moveCursorTo(docPos.row, docPos.column + chars, chars == 0);
-        } else {
-            var docColumn = (chars == 0 && this.$desiredColumn) || this.selectionLead.column;
-            this.moveCursorTo(this.selectionLead.row + rows, docColumn + chars, chars == 0);
-        }
+        var screenPos = this.session.documentToScreenPosition(
+            this.selectionLead.row,
+            this.selectionLead.column
+        );
+        var screenCol = (chars == 0 && this.$desiredColumn) || screenPos.column;
+        var docPos = this.session.screenToDocumentPosition(screenPos.row + rows, screenCol);
+
+        this.moveCursorTo(docPos.row, docPos.column + chars, chars == 0);
     };
 
     this.moveCursorToPosition = function(position) {
@@ -9532,17 +10205,21 @@ var Selection = function(session) {
     };
 
     this.moveCursorTo = function(row, column, preventUpdateDesiredColumn) {
+        // Ensure the row/column is not inside of a fold.
+        var fold = this.session.getFoldAt(row, column, 1);
+        if (fold) {
+            row = fold.start.row;
+            column = fold.start.column;
+        }
         this.selectionLead.setPosition(row, column);
         if (!preventUpdateDesiredColumn)
             this.$updateDesiredColumn(this.selectionLead.column);
     };
 
     this.moveCursorToScreen = function(row, column, preventUpdateDesiredColumn) {
-        if (this.session.getUseWrapMode()) {
-            var pos = this.session.screenToDocumentPosition(row, column);
-            row = pos.row;
-            column = pos.column;
-        }
+        var pos = this.session.screenToDocumentPosition(row, column);
+        row = pos.row;
+        column = pos.column;
         this.moveCursorTo(row, column, preventUpdateDesiredColumn);
     };
 
@@ -9550,7 +10227,7 @@ var Selection = function(session) {
 
 exports.Selection = Selection;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/range'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/range'), [], function (require, exports, module) {
 
 
 var Range = function(startRow, startColumn, endRow, endColumn) {
@@ -9576,6 +10253,114 @@ var Range = function(startRow, startColumn, endRow, endColumn) {
         return this.compare(row, column) == 0;
     };
 
+    /**
+     * Compares this range (A) with another range (B), where B is the passed in
+     * range.
+     *
+     * Return values:
+     *  -2: (B) is infront of (A) and doesn't intersect with (A)
+     *  -1: (B) begins before (A) but ends inside of (A)
+     *   0: (B) is completly inside of (A) OR (A) is complety inside of (B)
+     *  +1: (B) begins inside of (A) but ends outside of (A)
+     *  +2: (B) is after (A) and doesn't intersect with (A)
+     *
+     *  42: FTW state: (B) ends in (A) but starts outside of (A)
+     */
+    this.compareRange = function(range) {
+        var cmp,
+            end = range.end,
+            start = range.start;
+
+        cmp = this.compare(end.row, end.column);
+        if (cmp == 1) {
+            cmp = this.compare(start.row, start.column);
+            if (cmp == 1) {
+                return 2;
+            } else if (cmp == 0) {
+                return 1;
+            } else {
+                return 0;
+            }
+        } else if (cmp == -1) {
+            return -2;
+        } else {
+            cmp = this.compare(start.row, start.column);
+            if (cmp == -1) {
+                return -1;
+            } else if (cmp == 1) {
+                return 42;
+            } else {
+                return 0;
+            }
+        }
+    }
+
+    this.containsRange = function(range) {
+        var cmp = this.compareRange(range);
+        return (cmp == -1 || cmp == 0 || cmp == 1);
+    }
+
+    this.isEnd = function(row, column) {
+        return this.end.row == row && this.end.column == column;
+    }
+
+    this.isStart = function(row, column) {
+        return this.start.row == row && this.start.column == column;
+    }
+
+    this.setStart = function(row, column) {
+        if (typeof row == "object") {
+            this.start.column = row.column;
+            this.start.row = row.row;
+        } else {
+            this.start.row = row;
+            this.start.column = column;
+        }
+    }
+
+    this.setEnd = function(row, column) {
+        if (typeof row == "object") {
+            this.end.column = row.column;
+            this.end.row = row.row;
+        } else {
+            this.end.row = row;
+            this.end.column = column;
+        }
+    }
+
+    this.inside = function(row, column) {
+        if (this.compare(row, column) == 0) {
+            if (this.isEnd(row, column) || this.isStart(row, column)) {
+                return false;
+            } else {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    this.insideStart = function(row, column) {
+        if (this.compare(row, column) == 0) {
+            if (this.isEnd(row, column)) {
+                return false;
+            } else {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    this.insideEnd = function(row, column) {
+        if (this.compare(row, column) == 0) {
+            if (this.isStart(row, column)) {
+                return false;
+            } else {
+                return true;
+            }
+        }
+        return false;
+    }
+
     this.compare = function(row, column) {
         if (!this.isMultiLine()) {
             if (row === this.start.row) {
@@ -9597,6 +10382,38 @@ var Range = function(startRow, startColumn, endRow, endColumn) {
 
         return 0;
     };
+
+    /**
+     * Like .compare(), but if isStart is true, return -1;
+     */
+    this.compareStart = function(row, column) {
+        if (this.start.row == row && this.start.column == column) {
+            return -1;
+        } else {
+            return this.compare(row, column);
+        }
+    }
+
+    /**
+     * Like .compare(), but if isEnd is true, return 1;
+     */
+    this.compareEnd = function(row, column) {
+        if (this.end.row == row && this.end.column == column) {
+            return 1;
+        } else {
+            return this.compare(row, column);
+        }
+    }
+
+    this.compareInside = function(row, column) {
+        if (this.end.row == row && this.end.column == column) {
+            return 1;
+        } else if (this.start.row == row && this.start.column == column) {
+            return -1;
+        } else {
+            return this.compare(row, column);
+        }
+    }
 
     this.clipRows = function(firstRow, lastRow) {
         if (this.end.row > lastRow) {
@@ -9681,7 +10498,7 @@ Range.fromPoints = function(start, end) {
 
 exports.Range = Range;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/text'), ['ace/tokenizer','ace/mode/text_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/text'), ['ace/tokenizer','ace/mode/text_highlight_rules'], function (require, exports, module) {
 
 
 var Tokenizer = require("ace/tokenizer").Tokenizer;
@@ -9790,7 +10607,7 @@ var Mode = function() {
 
 exports.Mode = Mode;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/tokenizer'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/tokenizer'), [], function (require, exports, module) {
 
 
 var Tokenizer = function(rules) {
@@ -9884,7 +10701,7 @@ var Tokenizer = function(rules) {
 
 exports.Tokenizer = Tokenizer;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/text_highlight_rules'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/text_highlight_rules'), [], function (require, exports, module) {
 
 
 var TextHighlightRules = function() {
@@ -9928,7 +10745,7 @@ var TextHighlightRules = function() {
 
 exports.TextHighlightRules = TextHighlightRules;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/document'), ['pilot/oop','pilot/event_emitter','ace/range','ace/anchor'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/document'), ['pilot/oop','pilot/event_emitter','ace/range','ace/anchor'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -9960,11 +10777,11 @@ var Document = function(text) {
         this.remove(new Range(0, 0, len, this.getLine(len-1).length));
         this.insert({row: 0, column:0}, text);
     };
-  	
+
     this.getValue = function() {
         return this.getAllLines().join(this.getNewLineCharacter());
     };
-    
+
     this.createAnchor = function(row, column) {
         return new Anchor(this, row, column);
     };
@@ -10077,12 +10894,14 @@ var Document = function(text) {
         var firstLine = lines.splice(0, 1)[0];
         var lastLine = lines.length == 0 ? null : lines.splice(lines.length - 1, 1)[0];
 
+        this._dispatchEvent("changeStart");
         position = this.insertInLine(position, firstLine);
         if (lastLine !== null) {
             position = this.insertNewLine(position); // terminate first line
             position = this.insertLines(position.row, lines);
             position = this.insertInLine(position, lastLine || "");
         }
+        this._dispatchEvent("changeEnd");
         return position;
     };
 
@@ -10094,6 +10913,7 @@ var Document = function(text) {
         args.push.apply(args, lines);
         this.$lines.splice.apply(this.$lines, args);
 
+        this._dispatchEvent("changeStart");
         var range = new Range(row, 0, row + lines.length, 0);
         var delta = {
             action: "insertLines",
@@ -10101,12 +10921,15 @@ var Document = function(text) {
             lines: lines
         };
         this._dispatchEvent("change", { data: delta });
+        this._dispatchEvent("changeEnd");
         return range.end;
     },
 
     this.insertNewLine = function(position) {
         position = this.$clipPosition(position);
         var line = this.$lines[position.row] || "";
+
+        this._dispatchEvent("changeStart");
         this.$lines[position.row] = line.substring(0, position.column);
         this.$lines.splice(position.row + 1, 0, line.substring(position.column, line.length));
 
@@ -10121,6 +10944,7 @@ var Document = function(text) {
             text: this.getNewLineCharacter()
         };
         this._dispatchEvent("change", { data: delta });
+        this._dispatchEvent("changeEnd");
 
         return end;
     };
@@ -10130,6 +10954,8 @@ var Document = function(text) {
             return position;
 
         var line = this.$lines[position.row] || "";
+
+        this._dispatchEvent("changeStart");
         this.$lines[position.row] = line.substring(0, position.column) + text
                 + line.substring(position.column);
 
@@ -10144,6 +10970,7 @@ var Document = function(text) {
             text: text
         };
         this._dispatchEvent("change", { data: delta });
+        this._dispatchEvent("changeEnd");
 
         return end;
     };
@@ -10159,6 +10986,7 @@ var Document = function(text) {
         var firstRow = range.start.row;
         var lastRow = range.end.row;
 
+        this._dispatchEvent("changeStart");
         if (range.isMultiLine()) {
             var firstFullRow = range.start.column == 0 ? firstRow : firstRow + 1;
             var lastFullRow = lastRow - 1;
@@ -10177,6 +11005,7 @@ var Document = function(text) {
         else {
             this.removeInLine(firstRow, range.start.column, range.end.column);
         }
+        this._dispatchEvent("changeEnd");
         return range.start;
     };
 
@@ -10188,6 +11017,7 @@ var Document = function(text) {
         var line = this.getLine(row);
         var removed = line.substring(startColumn, endColumn);
         var newLine = line.substring(0, startColumn) + line.substring(endColumn, line.length);
+        this._dispatchEvent("changeStart");
         this.$lines.splice(row, 1, newLine);
 
         var delta = {
@@ -10196,6 +11026,7 @@ var Document = function(text) {
             text: removed
         };
         this._dispatchEvent("change", { data: delta });
+        this._dispatchEvent("changeEnd");
         return range.start;
     };
 
@@ -10207,6 +11038,7 @@ var Document = function(text) {
      * @return {String[]} The removed lines
      */
     this.removeLines = function(firstRow, lastRow) {
+        this._dispatchEvent("changeStart");
         var range = new Range(firstRow, 0, lastRow + 1, 0);
         var removed = this.$lines.splice(firstRow, lastRow - firstRow + 1);
 
@@ -10217,6 +11049,7 @@ var Document = function(text) {
             lines: removed
         };
         this._dispatchEvent("change", { data: delta });
+        this._dispatchEvent("changeEnd");
         return removed;
     };
 
@@ -10227,6 +11060,7 @@ var Document = function(text) {
         var range = new Range(row, firstLine.length, row+1, 0);
         var line = firstLine + secondLine;
 
+        this._dispatchEvent("changeStart");
         this.$lines.splice(row, 2, line);
 
         var delta = {
@@ -10235,6 +11069,7 @@ var Document = function(text) {
             text: this.getNewLineCharacter()
         };
         this._dispatchEvent("change", { data: delta });
+        this._dispatchEvent("changeEnd");
     };
 
     this.replace = function(range, text) {
@@ -10246,6 +11081,7 @@ var Document = function(text) {
         if (text == this.getTextRange(range))
             return range.end;
 
+        this._dispatchEvent("changeStart");
         this.remove(range);
         if (text) {
             var end = this.insert(range.start, text);
@@ -10253,6 +11089,7 @@ var Document = function(text) {
         else {
             end = range.start;
         }
+        this._dispatchEvent("changeEnd");
 
         return end;
     };
@@ -10276,6 +11113,7 @@ var Document = function(text) {
     this.revertDeltas = function(deltas) {
         for (var i=deltas.length-1; i>=0; i--) {
             var delta = deltas[i];
+
             var range = Range.fromPoints(delta.range.start, delta.range.end);
 
             if (delta.action == "insertLines")
@@ -10293,7 +11131,7 @@ var Document = function(text) {
 
 exports.Document = Document;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/anchor'), ['pilot/oop','pilot/event_emitter'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/anchor'), ['pilot/oop','pilot/event_emitter'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -10448,7 +11286,826 @@ var Anchor = exports.Anchor = function(doc, row, column) {
 }).call(Anchor.prototype);
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/search'), ['pilot/lang','pilot/oop','ace/range'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/background_tokenizer'), ['pilot/oop','pilot/event_emitter'], function (require, exports, module) {
+
+
+var oop = require("pilot/oop");
+var EventEmitter = require("pilot/event_emitter").EventEmitter;
+
+var BackgroundTokenizer = function(tokenizer, editor) {
+    this.running = false;    
+    this.lines = [];
+    this.currentLine = 0;
+    this.tokenizer = tokenizer;
+
+    var self = this;
+
+    this.$worker = function() {
+        if (!self.running) { return; }
+
+        var workerStart = new Date();
+        var startLine = self.currentLine;
+        var doc = self.doc;
+
+        var processedLines = 0;
+
+        var len = doc.getLength();
+        while (self.currentLine < len) {
+            self.lines[self.currentLine] = self.$tokenizeRows(self.currentLine, self.currentLine)[0];
+            self.currentLine++;
+
+            // only check every 5 lines
+            processedLines += 1;
+            if ((processedLines % 5 == 0) && (new Date() - workerStart) > 20) {
+                self.fireUpdateEvent(startLine, self.currentLine-1);
+                self.running = setTimeout(self.$worker, 20);
+                return;
+            }
+        }
+
+        self.running = false;
+
+        self.fireUpdateEvent(startLine, len - 1);
+    };
+};
+
+(function(){
+
+    oop.implement(this, EventEmitter);
+
+    this.setTokenizer = function(tokenizer) {
+        this.tokenizer = tokenizer;
+        this.lines = [];
+
+        this.start(0);
+    };
+
+    this.setDocument = function(doc) {
+        this.doc = doc;
+        this.lines = [];
+
+        this.stop();
+    };
+
+    this.fireUpdateEvent = function(firstRow, lastRow) {
+        var data = {
+            first: firstRow,
+            last: lastRow
+        };
+        this._dispatchEvent("update", {data: data});
+    };
+
+    this.start = function(startRow) {
+        this.currentLine = Math.min(startRow || 0, this.currentLine,
+                                    this.doc.getLength());
+
+        // remove all cached items below this line
+        this.lines.splice(this.currentLine, this.lines.length);
+
+        this.stop();
+        // pretty long delay to prevent the tokenizer from interfering with the user
+        this.running = setTimeout(this.$worker, 700);
+    };
+
+    this.stop = function() {
+        if (this.running)
+            clearTimeout(this.running);
+        this.running = false;
+    };
+
+    this.getTokens = function(firstRow, lastRow) {
+        return this.$tokenizeRows(firstRow, lastRow);
+    };
+
+    this.getState = function(row) {
+        return this.$tokenizeRows(row, row)[0].state;
+    };
+
+    this.$tokenizeRows = function(firstRow, lastRow) {
+        if (!this.doc)
+            return [];
+            
+        var rows = [];
+
+        // determine start state
+        var state = "start";
+        var doCache = false;
+        if (firstRow > 0 && this.lines[firstRow - 1]) {
+            state = this.lines[firstRow - 1].state;
+            doCache = true;
+        }
+
+        var lines = this.doc.getLines(firstRow, lastRow);
+        for (var row=firstRow; row<=lastRow; row++) {
+            if (!this.lines[row]) {
+                var tokens = this.tokenizer.getLineTokens(lines[row-firstRow] || "", state);
+                var state = tokens.state;
+                rows.push(tokens);
+
+                if (doCache) {
+                    this.lines[row] = tokens;
+                }
+            }
+            else {
+                var tokens = this.lines[row];
+                state = tokens.state;
+                rows.push(tokens);
+            }
+        }
+        return rows;
+    };
+
+}).call(BackgroundTokenizer.prototype);
+
+exports.BackgroundTokenizer = BackgroundTokenizer;
+});
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/edit_session/folding'), ['ace/range','ace/edit_session/fold_line'], function (require, exports, module) {
+
+
+var Range = require("ace/range").Range;
+var FoldLine = require("ace/edit_session/fold_line").FoldLine;
+
+/**
+ * Simple fold-data struct.
+ **/
+function Fold(range, placeholder) {
+    this.foldLine = null;
+    this.placeholder = placeholder;
+    this.range = range;
+    this.start = range.start;
+    this.end = range.end;
+
+    this.sameRow = range.start.row == range.end.row;
+    this.subFolds = [];
+}
+
+Fold.prototype.toString = function() {
+    return '"' + this.placeholder + '" ' + this.range.toString();
+}
+
+function Folding() {
+    /**
+     * Looks up a fold at a given row/column. Possible values for side:
+     *   -1: ignore a fold if fold.start = row/column
+     *   +1: ignore a fold if fold.end = row/column
+     */
+    this.getFoldAt = function(row, column, side) {
+        var foldLine = this.getFoldLine(row);
+        if (foldLine) {
+            var folds = foldLine.folds,
+                fold;
+
+            for (var i = 0; i < folds.length; i++) {
+                fold = folds[i];
+                if (fold.range.contains(row, column)) {
+                    if (side == 1 && fold.range.isEnd(row, column)) {
+                        continue;
+                    } else if (side == -1 && fold.range.isStart(row, column)) {
+                        continue;
+                    }
+                    return fold;
+                }
+            }
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns all folds in the given range. Note, that this will return folds
+     *
+     */
+    this.getFoldsInRange = function(range) {
+        range = range.clone();
+        var start = range.start,
+            end = range.end;
+        var foldLines = this.$foldData,
+            folds,
+            fold;
+        var cmp,
+            foundFolds = [];
+
+        start.column += 1;
+        end.column -= 1;
+
+        for (var i = 0; i < foldLines.length; i++) {
+            cmp = foldLines[i].range.compareRange(range);
+            // Range is before foldLine. No intersection. This means,
+            // there might be other foldLines that intersect.
+            if (cmp == 2) {
+                continue;
+            } else
+            // Range is after foldLine. There can't be any other foldLines then,
+            // so let's give up.
+            if (cmp == -2) {
+                break;
+            }
+
+            folds = foldLines[i].folds;
+            for (var j = 0; j < folds.length; j++) {
+                fold = folds[j];
+                cmp = fold.range.compareRange(range);
+                if (cmp == -2) {
+                    break;
+                } else if (cmp == 2) {
+                    continue;
+                } else
+                // WTF-state: Can happen due to -1/+1 to start/end column.
+                if (cmp == 42) {
+                    break;
+                }
+                foundFolds.push(fold);
+            }
+        }
+        return foundFolds;
+    }
+
+    /**
+     * Returns the string between folds at the given position.
+     * E.g.
+     *  foo<fold>b|ar<fold>wolrd -> "bar"
+     *  foo<fold>bar<fold>wol|rd -> "world"
+     *  foo<fold>bar<fo|ld>wolrd -> <null>
+     *
+     * where | means the position of row/column
+     *
+     * The trim option determs if the return string should be trimed according
+     * to the "side" passed with the trim value:
+     *
+     * E.g.
+     *  foo<fold>b|ar<fold>wolrd -trim=-1> "b"
+     *  foo<fold>bar<fold>wol|rd -trim=+1> "rld"
+     *  fo|o<fold>bar<fold>wolrd -trim=00> "foo"
+     */
+    this.getFoldStringAt = function(row, column, trim, foldLine) {
+        var foldLine = foldLine || this.getFoldLine(row);
+        if (!foldLine) {
+            return null;
+        } else {
+            var fold, lastFold, cmp, str;
+            lastFold = {
+                end: { column: 0 }
+            };
+            // TODO: Refactor to use getNextFoldTo function.
+            for (var i = 0; i < foldLine.folds.length; i++) {
+                fold = foldLine.folds[i];
+                cmp = fold.range.compareEnd(row, column);
+                if (cmp == -1) {
+                    str = this.getLine(fold.start.row).
+                                substring(lastFold.end.column, fold.start.column);
+                    break;
+                } else if (cmp == 0) {
+                    return null;
+                }
+                lastFold = fold;
+            }
+            if (!str) {
+                str = this.getLine(fold.start.row).
+                                substring(lastFold.end.column);
+            }
+            if (trim == -1) {
+                return str.substring(0, column - lastFold.end.column);
+            } else if (trim == 1) {
+                return str.substring(column - lastFold.end.column)
+            } else {
+                return str;
+            }
+        }
+    }
+
+    this.getFoldLine = function(docRow, startFoldLine) {
+        var foldData = this.$foldData;
+        var i = Math.max(foldData.indexOf(startFoldLine), 0);
+        for (i; i < foldData.length; i++) {
+            var foldLine = foldData[i];
+            if (foldLine.start.row <= docRow && foldLine.end.row >= docRow) {
+                return foldLine;
+            } else if (foldLine.end.row > docRow) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    this.$addFoldLine = function(foldLine) {
+        this.$foldData.push(foldLine);
+        this.$foldData.sort(function(a, b) {
+            return a.start.row - b.start.row;
+        });
+        return foldLine;
+    }
+
+    /**
+     * Adds a new fold.
+     *
+     * @returns
+     *      The new created Fold object or an existing fold object in case the
+     *      passed in range fits an existing fold exactly.
+     */
+    this.addFold = function(placeholder, startRow, startColumn, endRow, endColumn) {
+        var range;
+        var foldData = this.$foldData;
+        var foldRow  = null;
+        var foldLine;
+        var fold;
+        var argsFold;
+        var folds;
+        var added = false;
+
+        if (placeholder instanceof Fold) {
+            argsFold = placeholder;
+            startRow = argsFold.range;
+            placeholder = argsFold.placeholder;
+        }
+
+        // Normalize parameters.
+        if (!(startRow instanceof Range)) {
+            range = new Range(startRow, startColumn, endRow, endColumn);
+        } else {
+            range = startRow;
+            startRow = range.start.row;
+            startColumn = range.start.column;
+            endRow = range.end.row;
+            endColumn = range.end.column;
+        }
+
+        // --- Some checking ---
+        if (placeholder.length < 2) {
+            throw "Placeholder has to be at least 2 characters";
+        }
+
+        if (startRow == endRow && endColumn - startColumn < 2) {
+            throw "The range has to be at least 2 characters width";
+        }
+
+        fold = this.getFoldAt(startRow, startColumn, 1);
+        if (fold
+            && fold.range.isEnd(endRow, endColumn)
+            && fold.range.isStart(startRow, startColumn))
+        {
+            return fold;
+        }
+
+        fold = this.getFoldAt(startRow, startColumn, 1);
+        if (fold && !fold.range.isStart(startRow, startColumn)) {
+            throw "A fold can't start inside of an already existing fold";
+        }
+
+        fold = this.getFoldAt(endRow, endColumn, -1);
+        if (fold && !fold.range.isEnd(endRow, endColumn)) {
+            throw "A fold can't end inside of an already existing fold";
+        }
+
+        if (endRow >= this.doc.$lines.length) {
+            throw "End of fold is outside of the document.";
+        }
+
+        if (endColumn > this.getLine(endRow).length
+            || startColumn > this.getLine(startRow).length)
+        {
+            throw "End of fold is outside of the document.";
+        }
+
+        // --- Start adding the fold ---
+        // Use the passed in fold or create a new one.
+        fold = argsFold || new Fold(range, placeholder);
+
+        // Check if there are folds in the range we create the new fold for.
+        folds = this.getFoldsInRange(range);
+        if (folds.length > 0) {
+            // Remove the folds from fold data.
+            this.removeFolds(folds);
+            // Add the removed folds as subfolds on the new fold.
+            fold.subFolds = folds;
+        }
+
+        for (var i = 0; i < foldData.length; i++) {
+            foldLine = foldData[i];
+            if (endRow == foldLine.start.row) {
+                foldLine.addFold(fold);
+                added = true;
+                break;
+            } else if (startRow == foldLine.end.row) {
+                foldLine.addFold(fold);
+                added = true;
+                if (!fold.sameRow) {
+                    // Check if we might have to merge two FoldLines.
+                    foldLineNext = foldData[i + 1];
+                    if (foldLineNext && foldLineNext.start.row == endRow) {
+                        // We need to merge!
+                        foldLine.merge(foldLineNext);
+                        break;
+                    }
+                }
+                break;
+            } else if (endRow <= foldLine.start.row) {
+                break;
+            }
+        }
+
+        if (!added) {
+            foldLine = this.$addFoldLine(new FoldLine(this.$foldData, fold));
+        }
+
+        if (this.$useWrapMode) {
+            this.$updateWrapData(foldLine.start.row, foldLine.start.row);
+        }
+
+        // Notify that fold data has changed.
+        this.$modified = true;
+        this._dispatchEvent("changeFold", { data: fold });
+
+        return fold;
+    };
+
+    this.addFolds = function(folds) {
+        folds.forEach(function(fold) {
+            this.addFold(fold);
+        }, this);
+    };
+
+    this.removeFold = function(fold) {
+        var foldLine = fold.foldLine;
+        var startRow = foldLine.start.row;
+        var endRow = foldLine.end.row;
+
+        var foldLines = this.$foldData,
+            folds = foldLine.folds;
+        // Simple case where there is only one fold in the FoldLine such that
+        // the entire fold line can get removed directly.
+        if (folds.length == 1) {
+            foldLines.splice(foldLines.indexOf(foldLine), 1);
+        } else
+        // If the fold is the last fold of the foldLine, just remove it.
+        if (foldLine.range.isEnd(fold.end.row, fold.end.column)) {
+            folds.pop();
+            foldLine.end.row = folds[folds.length - 1].end.row;
+            foldLine.end.column = folds[folds.length - 1].end.column;
+        } else
+        // If the fold is the first fold of the foldLine, just remove it.
+        if (foldLine.range.isStart(fold.start.row, fold.start.column)) {
+            folds.shift();
+            foldLine.start.row = folds[0].start.row;
+            foldLine.start.column = folds[0].start.column;
+        } else
+        // We know there are more then 2 folds and the fold is not at the edge.
+        // This means, the fold is somewhere in between.
+        //
+        // If the fold is in one row, we just can remove it.
+        if (fold.sameRow) {
+            folds.splice(folds.indexOf(fold), 1);
+        } else
+        // The fold goes over more then one row. This means remvoing this fold
+        // will cause the fold line to get splitted up.
+        {
+            var newFoldLine = foldLine.split(fold.start.row, fold.start.column);
+            newFoldLine.folds.shift();
+            foldLine.start.row = folds[0].start.row;
+            foldLine.start.column = folds[0].start.column;
+            this.$addFoldLine(newFoldLine);
+        }
+
+        if (this.$useWrapMode) {
+            this.$updateWrapData(startRow, endRow);
+        }
+
+        // Notify that fold data has changed.
+        this.$modified = true;
+        this._dispatchEvent("changeFold", { data: fold });
+    }
+
+    this.removeFolds = function(folds) {
+        // We need to clone the folds array passed in as it might be the folds
+        // array of a fold line and as we call this.removeFold(fold), folds
+        // are removed from folds and changes the current index.
+        var cloneFolds = [];
+        for (var i = 0; i < folds.length; i++) {
+            cloneFolds.push(folds[i]);
+        }
+
+        cloneFolds.forEach(function(fold) {
+            this.removeFold(fold);
+        }, this);
+        this.$modified = true;
+    }
+
+    this.expandFold = function(fold) {
+        this.removeFold(fold);
+        fold.subFolds.forEach(function(fold) {
+            this.addFold(fold);
+        }, this);
+        fold.subFolds = [];
+    }
+
+    this.expandFolds = function(folds) {
+        folds.forEach(function(fold) {
+            this.expandFold(fold);
+        }, this);
+    }
+
+    /**
+     * Checks if a given documentRow is folded. This is true if there are some
+     * folded parts such that some parts of the line is still visible.
+     **/
+    this.isRowFolded = function(docRow, startFoldRow) {
+        return !!this.getFoldLine(docRow, startFoldRow);
+    };
+
+    this.getRowFoldEnd = function(docRow, startFoldRow) {
+        var foldLine = this.getFoldLine(docRow, startFoldRow);
+        return (foldLine
+                    ? foldLine.end.row
+                    : docRow)
+    };
+
+    this.getFoldDisplayLine = function(foldLine, endRow, endColumn, startRow, startColumn) {
+        if (startRow == null) {
+            startRow = foldLine.start.row;
+            startColumn = 0;
+        }
+
+        if (endRow == null) {
+            endRow = foldLine.end.row;
+            endColumn = this.getLine(endRow).length;
+        }
+
+        // Build the textline using the FoldLine walker.
+        var line = "";
+        var lines = this.doc.$lines;
+        var textLine = "";
+
+        foldLine.walk(function(placeholder, row, column, lastColumn, isNewRow) {
+            if (row < startRow) {
+                return;
+            } else if (row == startRow) {
+                if (column < startColumn) {
+                    return;
+                }
+                lastColumn = Math.max(startColumn, lastColumn);
+            }
+            if (placeholder) {
+                textLine += placeholder;
+            } else {
+                textLine += lines[row].substring(lastColumn, column);
+            }
+        }.bind(this), endRow, endColumn);
+        return textLine;
+    };
+
+    this.getDisplayLine = function(row, endColumn, startRow, startColumn) {
+        var foldLine = this.getFoldLine(row);
+
+        if (!foldLine) {
+            var line;
+            line = this.doc.$lines[row];
+            return line.substring(startColumn || 0, endColumn || line.length);
+        } else {
+            return this.getFoldDisplayLine(
+                foldLine, row, endColumn, startRow, startColumn);
+        }
+    };
+}
+
+exports.Folding = Folding;
+
+});
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/edit_session/fold_line'), ['ace/range'], function (require, exports, module) {
+
+
+var Range = require("ace/range").Range;
+
+/**
+ * If the an array is passed in, the folds are expected to be sorted already.
+ */
+function FoldLine(foldData, folds) {
+    this.foldData = foldData;
+    if (Array.isArray(folds)) {
+        this.folds = folds;
+    } else {
+        folds = this.folds = [ folds ];
+    }
+
+    var last = folds[folds.length - 1]
+    this.range = new Range(folds[0].start.row, folds[0].start.column,
+                           last.end.row, last.end.column);
+    this.start = this.range.start;
+    this.end   = this.range.end;
+
+    this.folds.forEach(function(fold) {
+        fold.foldLine = this;
+    }, this);
+}
+
+(function() {
+    /**
+     * Note: This doesn't update wrapData!
+     */
+    this.shiftRow = function(shift) {
+        this.start.row += shift;
+        this.end.row += shift;
+        this.folds.forEach(function(fold) {
+            fold.start.row += shift;
+            fold.end.row += shift;
+        });
+    }
+
+    this.addFold = function(fold) {
+        if (fold.sameRow) {
+            if (fold.start.row < this.startRow || fold.endRow > this.endRow) {
+                throw "Can't add a fold to this FoldLine as it has no connection";
+            }
+            this.folds.push(fold);
+            this.folds.sort(function(a, b) {
+                return -a.range.compareEnd(b.start.row, b.start.column);
+            });
+            if (this.range.compareEnd(fold.start.row, fold.start.column) > 0) {
+                this.end.row = fold.end.row;
+                this.end.column =  fold.end.column;
+            } else if (this.range.compareStart(fold.end.row, fold.end.column) < 0) {
+                this.start.row = fold.start.row;
+                this.start.column = fold.start.column;
+            }
+        } else if (fold.start.row == this.end.row) {
+            this.folds.push(fold);
+            this.end.row = fold.end.row;
+            this.end.column = fold.end.column;
+        } else if (fold.end.row == this.start.row) {
+            this.folds.unshift(fold);
+            this.start.row = fold.start.row;
+            this.start.column = fold.start.column;
+        } else {
+            throw "Trying to add fold to FoldRow that doesn't have a matching row";
+        }
+        fold.foldLine = this;
+    }
+
+    this.containsRow = function(row) {
+        return row >= this.start.row && row <= this.end.row;
+    }
+
+    this.walk = function(callback, endRow, endColumn) {
+        var lastEnd = 0,
+            folds = this.folds,
+            fold,
+            comp, stop, isNewRow = true;
+
+        if (endRow == null) {
+            endRow = this.end.row;
+            endColumn = this.end.column;
+        }
+
+        for (var i = 0; i < folds.length; i++) {
+            fold = folds[i];
+
+            comp = fold.range.compareStart(endRow, endColumn);
+            // This fold is after the endRow/Column.
+            if (comp == -1) {
+                callback(null, endRow, endColumn, lastEnd, isNewRow);
+                return;
+            }
+
+            stop = callback(null, fold.start.row, fold.start.column, lastEnd, isNewRow);
+            stop = !stop && callback(fold.placeholder, fold.start.row, fold.start.column, lastEnd);
+
+            // If the user requested to stop the walk or endRow/endColumn is
+            // inside of this fold (comp == 0), then end here.
+            if (stop || comp == 0) {
+                return;
+            }
+
+            // Note the new lastEnd might not be on the same line. However,
+            // it's the callback's job to recognize this.
+            isNewRow = !fold.sameRow;
+            lastEnd = fold.end.column;
+        }
+        callback(null, endRow, endColumn, lastEnd, isNewRow);
+    }
+
+    this.getNextFoldTo = function(row, column) {
+        var fold, cmp;
+        for (var i = 0; i < this.folds.length; i++) {
+            fold = this.folds[i];
+            cmp = fold.range.compareEnd(row, column);
+            if (cmp == -1) {
+                return {
+                    fold: fold,
+                    kind: "after"
+                };
+            } else if (cmp == 0) {
+                return {
+                    fold: fold,
+                    kind: "inside"
+                }
+            }
+        }
+        return null;
+    }
+
+    this.addRemoveChars = function(row, column, len) {
+        var ret = this.getNextFoldTo(row, column),
+            fold, folds;
+        if (ret) {
+            fold = ret.fold;
+            if (ret.kind == "inside"
+                && fold.start.column != column
+                && fold.start.row != row)
+            {
+                throw "Moving characters inside of a fold should never be reached";
+            } else if (fold.start.row == row) {
+                folds = this.folds;
+                var i = folds.indexOf(fold);
+                if (i == 0) {
+                    this.start.column += len;
+                }
+                for (i; i < folds.length; i++) {
+                    fold = folds[i];
+                    fold.start.column += len;
+                    if (!fold.sameRow) {
+                        return;
+                    }
+                    fold.end.column += len;
+                }
+                this.end.column += len;
+            }
+        }
+    }
+
+    this.split = function(row, column) {
+        var fold = this.getNextFoldTo(row, column).fold,
+            folds = this.folds;
+        var foldData = this.foldData;
+
+        if (!fold) {
+            return null;
+        }
+        var i = folds.indexOf(fold);
+        var foldBefore = folds[i - 1];
+        this.end.row = foldBefore.end.row;
+        this.end.column = foldBefore.end.column;
+
+        // Remove the folds after row/column and create a new FoldLine
+        // containing these removed folds.
+        folds = folds.splice(i, folds.length - i);
+
+        var newFoldLine = new FoldLine(foldData, folds);
+        foldData.splice(foldData.indexOf(this) + 1, 0, newFoldLine);
+        return newFoldLine;
+    }
+
+    this.merge = function(foldLineNext) {
+        var folds = foldLineNext.folds;
+        for (var i = 0; i < folds.length; i++) {
+            this.addFold(folds[i]);
+        }
+        // Remove the foldLineNext - no longer needed, as
+        // it's merged now with foldLineNext.
+        var foldData = this.foldData;
+        foldData.splice(foldData.indexOf(foldLineNext), 1);
+    }
+
+    this.toString = function() {
+        var ret = [this.range.toString() + ": [" ];
+
+        this.folds.forEach(function(fold) {
+            ret.push("  " + fold.toString());
+        });
+        ret.push("]")
+        return ret.join("\n");
+    }
+
+    this.idxToPosition = function(idx) {
+        var lastFoldEndColumn = 0;
+        var fold;
+
+        for (var i = 0; i < this.folds.length; i++) {
+            var fold = this.folds[i];
+
+            idx -= fold.start.column - lastFoldEndColumn;
+            if (idx < 0) {
+                return {
+                    row: fold.start.row,
+                    column: fold.start.column + idx
+                };
+            }
+
+            idx -= fold.placeholder.length;
+            if (idx < 0) {
+                return fold.start;
+            }
+
+            lastFoldEndColumn = fold.end.column;
+        }
+
+        return {
+            row: this.end.row,
+            column: this.end.column + idx
+        };
+    }
+}).call(FoldLine.prototype);
+
+exports.FoldLine = FoldLine;
+});
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/search'), ['pilot/lang','pilot/oop','ace/range'], function (require, exports, module) {
 
 
 var lang = require("pilot/lang");
@@ -10744,143 +12401,7 @@ Search.SELECTION = 2;
 
 exports.Search = Search;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/background_tokenizer'), ['pilot/oop','pilot/event_emitter'], function (require, exports, module) {
-
-
-var oop = require("pilot/oop");
-var EventEmitter = require("pilot/event_emitter").EventEmitter;
-
-var BackgroundTokenizer = function(tokenizer, editor) {
-    this.running = false;    
-    this.lines = [];
-    this.currentLine = 0;
-    this.tokenizer = tokenizer;
-
-    var self = this;
-
-    this.$worker = function() {
-        if (!self.running) { return; }
-
-        var workerStart = new Date();
-        var startLine = self.currentLine;
-        var doc = self.doc;
-
-        var processedLines = 0;
-        var lastVisibleRow = editor.getLastVisibleRow();
-
-        var len = doc.getLength();
-        while (self.currentLine < len) {
-            self.lines[self.currentLine] = self.$tokenizeRows(self.currentLine, self.currentLine)[0];
-            self.currentLine++;
-
-            // only check every 5 lines
-            processedLines += 1;
-            if ((processedLines % 5 == 0) && (new Date() - workerStart) > 20) {
-                self.fireUpdateEvent(startLine, self.currentLine-1);
-
-                var timeout = self.currentLine < lastVisibleRow ? 20 : 100;
-                self.running = setTimeout(self.$worker, timeout);
-                return;
-            }
-        }
-
-        self.running = false;
-
-        self.fireUpdateEvent(startLine, len - 1);
-    };
-};
-
-(function(){
-
-    oop.implement(this, EventEmitter);
-
-    this.setTokenizer = function(tokenizer) {
-        this.tokenizer = tokenizer;
-        this.lines = [];
-
-        this.start(0);
-    };
-
-    this.setDocument = function(doc) {
-        this.doc = doc;
-        this.lines = [];
-
-        this.stop();
-    };
-
-    this.fireUpdateEvent = function(firstRow, lastRow) {
-        var data = {
-            first: firstRow,
-            last: lastRow
-        };
-        this._dispatchEvent("update", {data: data});
-    };
-
-    this.start = function(startRow) {
-        this.currentLine = Math.min(startRow || 0, this.currentLine,
-                                    this.doc.getLength());
-
-        // remove all cached items below this line
-        this.lines.splice(this.currentLine, this.lines.length);
-
-        this.stop();
-        // pretty long delay to prevent the tokenizer from interfering with the user
-        this.running = setTimeout(this.$worker, 700);
-    };
-
-    this.stop = function() {
-        if (this.running)
-            clearTimeout(this.running);
-        this.running = false;
-    };
-
-    this.getTokens = function(firstRow, lastRow) {
-        return this.$tokenizeRows(firstRow, lastRow);
-    };
-
-    this.getState = function(row) {
-        return this.$tokenizeRows(row, row)[0].state;
-    };
-
-    this.$tokenizeRows = function(firstRow, lastRow) {
-        if (!this.doc)
-            return [];
-            
-        var rows = [];
-
-        // determine start state
-        var state = "start";
-        var doCache = false;
-        if (firstRow > 0 && this.lines[firstRow - 1]) {
-            state = this.lines[firstRow - 1].state;
-            doCache = true;
-        }
-
-        var lines = this.doc.getLines(firstRow, lastRow);
-        for (var row=firstRow; row<=lastRow; row++) {
-            if (!this.lines[row]) {
-                var tokens = this.tokenizer.getLineTokens(lines[row-firstRow] || "", state);
-                var state = tokens.state;
-                rows.push(tokens);
-
-                if (doCache) {
-                    this.lines[row] = tokens;
-                }
-            }
-            else {
-                var tokens = this.lines[row];
-                state = tokens.state;
-                rows.push(tokens);
-            }
-        }
-        return rows;
-    };
-
-}).call(BackgroundTokenizer.prototype);
-
-exports.BackgroundTokenizer = BackgroundTokenizer;
-});
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/virtual_renderer'), ['pilot/oop','pilot/dom','pilot/event','pilot/useragent','ace/layer/gutter','ace/layer/marker','ace/layer/text','ace/layer/cursor','ace/scrollbar','ace/renderloop','pilot/event_emitter','text!ace/css/editor.css'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/virtual_renderer'), ['pilot/oop','pilot/dom','pilot/event','pilot/useragent','ace/layer/gutter','ace/layer/marker','ace/layer/text','ace/layer/cursor','ace/scrollbar','ace/renderloop','pilot/event_emitter','text!ace/css/editor.css'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -11080,12 +12601,6 @@ var VirtualRenderer = function(container, theme) {
         this.$loop.schedule(changes);
     };
 
-    this.setTokenizer = function(tokenizer) {
-        this.$tokenizer = tokenizer;
-        this.$textLayer.setTokenizer(tokenizer);
-        this.$loop.schedule(this.CHANGE_TEXT);
-    };
-
     this.$onGutterClick = function(e) {
         var pageX = event.getDocumentX(e);
         var pageY = event.getDocumentY(e);
@@ -11124,7 +12639,7 @@ var VirtualRenderer = function(container, theme) {
     this.getPrintMarginColumn = function() {
         return this.$printMarginColumn;
     };
-    
+
     this.getShowGutter = function(){
         return this.showGutter;
     }
@@ -11238,7 +12753,7 @@ var VirtualRenderer = function(container, theme) {
     };
 
     this.$renderChanges = function(changes) {
-        if (!changes || !this.session || !this.$tokenizer)
+        if (!changes || !this.session)
             return;
 
         // text, scrolling and resize changes can cause the view port size to change
@@ -11326,11 +12841,19 @@ var VirtualRenderer = function(container, theme) {
         // Map lines on the screen to lines in the document.
         var firstRowScreen, firstRowHeight;
         var lineHeight = { lineHeight: this.lineHeight };
-        firstRow = session.screenToDocumentRow(firstRow);
-        firstRowScreen = session.documentToScreenRow(firstRow);
+        firstRow = session.screenToDocumentRow(firstRow, 0);
+
+        // Check if firstRow is inside of a foldLine. If true, then use the first
+        // row of the foldLine.
+        var foldLine = session.getFoldLine(firstRow);
+        if (foldLine) {
+            firstRow = foldLine.start.row;
+        }
+
+        firstRowScreen = session.documentToScreenRow(firstRow, 0);
         firstRowHeight = session.getRowHeight(lineHeight, firstRow);
 
-        lastRow = Math.min(session.screenToDocumentRow(lastRow), session.getLength() - 1);
+        lastRow = Math.min(session.screenToDocumentRow(lastRow, 0), session.getLength() - 1);
         minHeight = this.$size.scrollerHeight + session.getRowHeight(lineHeight, lastRow)+
                                                 firstRowHeight;
 
@@ -11348,6 +12871,9 @@ var VirtualRenderer = function(container, theme) {
             offset : offset,
             height : this.$size.scrollerHeight
         };
+
+        // For debugging.
+        // console.log(JSON.stringify(layerConfig));
 
         this.$gutterLayer.element.style.marginTop = (-offset) + "px";
         this.content.style.marginTop = (-offset) + "px";
@@ -11439,7 +12965,7 @@ var VirtualRenderer = function(container, theme) {
         // the editor is not visible
         if (this.$size.scrollerHeight === 0)
             return;
-            
+
         var pos = this.$cursorLayer.getPixelPosition();
 
         var left = pos.left + this.$padding;
@@ -11493,7 +13019,7 @@ var VirtualRenderer = function(container, theme) {
         for (var l = 1; l < line; l++) {
             offset += this.session.getRowHeight(lineHeight, l-1);
         }
-            
+
         if (center) {
             offset -= this.$size.scrollerHeight / 2;
         }
@@ -11632,7 +13158,7 @@ var VirtualRenderer = function(container, theme) {
 
 exports.VirtualRenderer = VirtualRenderer;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/layer/gutter'), ['pilot/dom'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/layer/gutter'), ['pilot/dom'], function (require, exports, module) {
 
 
 var dom = require("pilot/dom");
@@ -11669,12 +13195,12 @@ var Gutter = function(parentEl) {
 
     this.setAnnotations = function(annotations) {
         // iterate over sparse array
-        this.$annotations = [];        
+        this.$annotations = [];
         for (var row in annotations) if (annotations.hasOwnProperty(row)) {
             var rowAnnotations = annotations[row];
             if (!rowAnnotations)
                 continue;
-                
+
             var rowInfo = this.$annotations[row] = {
                 text: []
             };
@@ -11707,6 +13233,9 @@ var Gutter = function(parentEl) {
                 annotation.className,
                 "' title='", annotation.text.join("\n"),
                 "' style='height:", this.session.getRowHeight(config, i), "px;'>", (i+1), "</div>");
+
+
+            i = this.session.getRowFoldEnd(i);
         }
 		this.element = dom.setInnerHtml(this.element, html.join(""));
         this.element.style.height = config.minHeight + "px";
@@ -11717,7 +13246,7 @@ var Gutter = function(parentEl) {
 exports.Gutter = Gutter;
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/layer/marker'), ['ace/range','pilot/dom'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/layer/marker'), ['ace/range','pilot/dom'], function (require, exports, module) {
 
 
 var Range = require("ace/range").Range;
@@ -11859,12 +13388,13 @@ var Marker = function(parentEl) {
 exports.Marker = Marker;
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/layer/text'), ['pilot/oop','pilot/dom','pilot/lang','pilot/event_emitter'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/layer/text'), ['pilot/oop','pilot/dom','pilot/lang','pilot/useragent','pilot/event_emitter'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
 var dom = require("pilot/dom");
 var lang = require("pilot/lang");
+var useragent = require("pilot/useragent");
 var EventEmitter = require("pilot/event_emitter").EventEmitter;
 
 var Text = function(parentEl) {
@@ -11884,10 +13414,6 @@ var Text = function(parentEl) {
     this.EOL_CHAR = "&not;";
     this.TAB_CHAR = "&rarr;";
     this.SPACE_CHAR = "&middot;";
-
-    this.setTokenizer = function(tokenizer) {
-        this.tokenizer = tokenizer;
-    };
 
     this.getLineHeight = function() {
         return this.$characterSize.height || 1;
@@ -11982,18 +13508,21 @@ var Text = function(parentEl) {
         return true;
     };
 
+    this.$tabStrings = [];
     this.$computeTabString = function() {
         var tabSize = this.session.getTabSize();
-        if (this.showInvisibles) {
-            var halfTab = (tabSize) / 2;
-            this.$tabString = "<span class='ace_invisible'>"
-                + new Array(Math.floor(halfTab)).join("&#160;")
-                + this.TAB_CHAR
-                + new Array(Math.ceil(halfTab)+1).join("&#160;")
-                + "</span>";
-        } else {
-            this.$tabString = new Array(tabSize+1).join("&#160;");
+        var tabStr = this.$tabStrings = [0];
+        for (var i = 1; i < tabSize + 1; i++) {
+            if (this.showInvisibles) {
+                tabStr.push("<span class='ace_invisible'>"
+                    + this.TAB_CHAR
+                    + new Array(i).join("&#160;")
+                    + "</span>");
+            } else {
+                tabStr.push(new Array(i+1).join("&#160;"));
+            }
         }
+
     };
 
     this.updateLines = function(config, firstRow, lastRow) {
@@ -12009,18 +13538,34 @@ var Text = function(parentEl) {
         var first = Math.max(firstRow, config.firstRow);
         var last = Math.min(lastRow, config.lastRow);
 
-        var lineElements = this.element.childNodes;
-        var tokens = this.tokenizer.getTokens(first, last);
+        var lineElements = this.element.childNodes,
+            lineElementsIdx = 0;
+
+        for (var row = config.firstRow; row < first; row++) {
+            var foldLine = this.session.getFoldLine(row);
+            if (foldLine) {
+                if (foldLine.containsRow(first)) {
+                    break;
+                } else {
+                    row = foldLine.end.row;
+                }
+            }
+            lineElementsIdx ++;
+        }
+
         for (var i=first; i<=last; i++) {
-            var lineElement = lineElements[i - config.firstRow];
+            var lineElement = lineElements[lineElementsIdx++];
             if (!lineElement)
                 continue;
 
             var html = [];
-            this.$renderLine(html, i, tokens[i-first].tokens);
+            var tokens = this.session.getTokens(i, i);
+            this.$renderLine(html, i, tokens[0].tokens);
             lineElement = dom.setInnerHtml(lineElement, html.join(""));
             lineElement.style.height =
                     this.session.getRowHeight(config, i) + "px";
+
+            i = this.session.getRowFoldEnd(i);
         }
     };
 
@@ -12038,11 +13583,11 @@ var Text = function(parentEl) {
         var el = this.element;
 
         if (oldConfig.firstRow < config.firstRow)
-            for (var row=oldConfig.firstRow; row<config.firstRow; row++)
+            for (var row=oldConfig.firstRow; row<config.firstRow; row = this.session.getRowFoldEnd(row) + 1)
                 el.removeChild(el.firstChild);
 
         if (oldConfig.lastRow > config.lastRow)
-            for (var row=config.lastRow+1; row<=oldConfig.lastRow; row++)
+            for (var row=config.lastRow+1; row<=oldConfig.lastRow; row = this.session.getRowFoldEnd(row) + 1)
                 el.removeChild(el.lastChild);
 
         if (config.firstRow < oldConfig.firstRow) {
@@ -12061,20 +13606,28 @@ var Text = function(parentEl) {
 
     this.$renderLinesFragment = function(config, firstRow, lastRow) {
         var fragment = document.createDocumentFragment();
-        var tokens = this.tokenizer.getTokens(firstRow, lastRow);
         for (var row=firstRow; row<=lastRow; row++) {
             var lineEl = dom.createElement("div");
+
             lineEl.className = "ace_line";
             var style = lineEl.style;
             style.height = this.session.getRowHeight(config, row) + "px";
             style.width = config.width + "px";
 
             var html = [];
-            if (tokens.length > row-firstRow)
-                this.$renderLine(html, row, tokens[row-firstRow].tokens);
+            // Get the tokens per line as there might be some lines in between
+            // beeing folded.
+            // OPTIMIZE: If there is a long block of unfolded lines, just make
+            // this call once for that big block of unfolded lines.
+            var tokens = this.session.getTokens(row, row);
+            if (tokens.length == 1)
+                this.$renderLine(html, row, tokens[0].tokens);
+
             // don't use setInnerHtml since we are working with an empty DIV
             lineEl.innerHTML = html.join("");
             fragment.appendChild(lineEl);
+
+            row = this.session.getRowFoldEnd(row);
         }
         return fragment;
     };
@@ -12084,7 +13637,7 @@ var Text = function(parentEl) {
         this.config = config;
 
         var html = [];
-        var tokens = this.tokenizer.getTokens(config.firstRow, config.lastRow)
+        var tokens = this.session.getTokens(config.firstRow, config.lastRow)
         var fragment = this.$renderLinesFragment(config, config.firstRow, config.lastRow);
 
         // Clear the current content of the element and add the rendered fragment.
@@ -12098,48 +13651,63 @@ var Text = function(parentEl) {
         "lparen": true
     };
 
-    this.$renderLine = function(stringBuilder, row, tokens) {
-        if (this.showInvisibles) {
-            var self = this;
-            var spaceRe = /( +)|([\v\f \u00a0\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u200b\u2028\u2029\u3000])/g;
-            var spaceReplace = function(space) {
-                if (space.charCodeAt(0) == 32)
-                    return new Array(space.length+1).join("&#160;");
-                else {
-                    var space = new Array(space.length+1).join(self.SPACE_CHAR);
+    this.$renderToken = function(stringBuilder, screenColumn, token, value) {
+        var self = this;
+        var replaceReg = /\t|&|<|( +)|([\v\f \u00a0\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u200b\u2028\u2029\u3000])|[\u1100-\u115F]|[\u11A3-\u11A7]|[\u11FA-\u11FF]|[\u2329-\u232A]|[\u2E80-\u2E99]|[\u2E9B-\u2EF3]|[\u2F00-\u2FD5]|[\u2FF0-\u2FFB]|[\u3000-\u303E]|[\u3041-\u3096]|[\u3099-\u30FF]|[\u3105-\u312D]|[\u3131-\u318E]|[\u3190-\u31BA]|[\u31C0-\u31E3]|[\u31F0-\u321E]|[\u3220-\u3247]|[\u3250-\u32FE]|[\u3300-\u4DBF]|[\u4E00-\uA48C]|[\uA490-\uA4C6]|[\uA960-\uA97C]|[\uAC00-\uD7A3]|[\uD7B0-\uD7C6]|[\uD7CB-\uD7FB]|[\uF900-\uFAFF]|[\uFE10-\uFE19]|[\uFE30-\uFE52]|[\uFE54-\uFE66]|[\uFE68-\uFE6B]|[\uFF01-\uFF60]|[\uFFE0-\uFFE6]/g;
+        var replaceFunc = function(c, a, b, tabIdx, idx4) {
+            if (c.charCodeAt(0) == 32) {
+                return new Array(c.length+1).join("&#160;");
+            } else if (c == "\t") {
+                var tabSize = self.session.
+                        getScreenTabSize(screenColumn + tabIdx);
+                screenColumn += tabSize - 1;
+                return self.$tabStrings[tabSize];
+            } else if (c == "&") {
+              if (useragent.isOldGecko)
+                return "&";
+              else
+                return "&amp";
+            } else if (c == "<") {
+                return "&lt;";
+            } else if (c.match(/[\v\f \u00a0\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u200b\u2028\u2029\u3000]/)) {
+                if (self.showInvisibles) {
+                    var space = new Array(c.length+1).join(self.SPACE_CHAR);
                     return "<span class='ace_invisible'>" + space + "</span>";
+                } else {
+                    return "&#160;";
                 }
+            } else {
+                screenColumn += 1;
+                return "<span class='ace_cjk' style='width:" + (
+                        self.config.characterWidth * 2) +
+                        "px'>" + c + "</span>";
+            }
+        }
 
-            };
+        var output = value.replace(replaceReg, replaceFunc);
+
+        if (!this.$textToken[token.type]) {
+            var classes = "ace_" + token.type.replace(/\./g, " ace_");
+            stringBuilder.push("<span class='", classes, "'>", output, "</span>");
         }
         else {
-            var spaceRe = /[\v\f \u00a0\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u200b\u2028\u2029\u3000]/g;
-            var spaceReplace = "&#160;";
+            stringBuilder.push(output);
         }
+        return value.length;
+    }
 
-        var _self = this;
-        var characterWidth = this.config.characterWidth;
+    this.$renderLineCore = function(stringBuilder, lastRow, tokens, splits) {
+        var chars = 0,
+            split = 0,
+            splitChars,
+            characterWidth = this.config.characterWidth,
+            screenColumn = 0,
+            self = this;
+
         function addToken(token, value) {
-            var output = value
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(spaceRe, spaceReplace)
-                .replace(/\t/g, _self.$tabString)
-                .replace(/[\u3040-\u309F]|[\u30A0-\u30FF]|[\u4E00-\u9FFF\uF900-\uFAFF\u3400-\u4DBF]/g, function(c) {
-                    return "<span class='ace_cjk' style='width:" + (characterWidth * 2) + "px'>" + c + "</span>"
-                });
-
-            if (!_self.$textToken[token.type]) {
-                var classes = "ace_" + token.type.replace(/\./g, " ace_");
-                stringBuilder.push("<span class='", classes, "'>", output, "</span>");
-            }
-            else {
-                stringBuilder.push(output);
-            }
+            screenColumn += self.$renderToken(
+                stringBuilder, screenColumn, token, value);
         }
-
-        var splits = this.session.getRowSplitData(row);
-        var chars = 0, split = 0, splitChars;
 
         if (!splits || splits.length == 0) {
             splitChars = Number.MAX_VALUE;
@@ -12166,7 +13734,9 @@ var Text = function(parentEl) {
                         "<div style='height:",
                         this.config.lineHeight, "px",
                         "'>");
+
                     split ++;
+                    screenColumn = 0;
                     splitChars = splits[split] || Number.MAX_VALUE;
                 }
                 if (value.length != 0) {
@@ -12177,13 +13747,90 @@ var Text = function(parentEl) {
         };
 
         if (this.showInvisibles) {
-            if (row !== this.session.getLength() - 1) {
+            if (lastRow !== this.session.getLength() - 1) {
                 stringBuilder.push("<span class='ace_invisible'>" + this.EOL_CHAR + "</span>");
             } else {
                 stringBuilder.push("<span class='ace_invisible'>" + this.EOF_CHAR + "</span>");
             }
         }
         stringBuilder.push("</div>");
+    }
+
+    this.$renderLine = function(stringBuilder, row, tokens) {
+        // Check if the line to render is folded or not. If not, things are
+        // simple, otherwise, we need to fake some things...
+        if (!this.session.isRowFolded(row)) {
+            var splits = this.session.getRowSplitData(row);
+            this.$renderLineCore(stringBuilder, row, tokens, splits)
+        } else {
+            this.$renderFoldLine(stringBuilder, row, tokens, splits);
+        }
+    };
+
+    this.$renderFoldLine = function(stringBuilder, row, tokens) {
+        var session = this.session,
+            foldLine = session.getFoldLine(row),
+            renderTokens = [];
+
+        function addTokens(tokens, from, to) {
+            var idx = 0, col = 0;
+            while ((col + tokens[idx].value.length) < from) {
+                col += tokens[idx].value.length
+                idx++
+
+                if (idx == tokens.length) {
+                    return;
+                }
+            }
+            if (col != from) {
+                var value = tokens[idx].value.substring(from - col);
+                // Check if the token value is longer then the from...to spacing.
+                if (value.length > (to - from)) {
+                    value = value.substring(0, to - from);
+                }
+
+                renderTokens.push({
+                    type: tokens[idx].type,
+                    value: value
+                });
+
+                col = from + value.length;
+                idx += 1
+            }
+
+            while (col < to) {
+                var value = tokens[idx].value;
+                if (value.length + col > to) {
+                    value = value.substring(0, to - col);
+                }
+                renderTokens.push({
+                    type: tokens[idx].type,
+                    value: value
+                });
+                col += value.length;
+                idx += 1;
+            }
+        }
+
+        foldLine.walk(function(placeholder, row, column, lastColumn, isNewRow) {
+            if (placeholder) {
+               renderTokens.push({
+                    type: "fold",
+                    value: placeholder
+                });
+            } else {
+                if (isNewRow) {
+                   tokens = this.session.getTokens(row, row)[0].tokens;
+                }
+                if (tokens.length != 0) {
+                    addTokens(tokens, lastColumn, column);
+                }
+            }
+        }.bind(this), foldLine.end.row, this.session.getLine(foldLine.end.row).length);
+
+        // TODO: Build a fake splits array!
+        var splits = this.session.$wrapData[row];
+        this.$renderLineCore(stringBuilder, row, renderTokens, splits);
     };
 
 }).call(Text.prototype);
@@ -12191,7 +13838,7 @@ var Text = function(parentEl) {
 exports.Text = Text;
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/layer/cursor'), ['pilot/dom'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/layer/cursor'), ['pilot/dom'], function (require, exports, module) {
 
 
 var dom = require("pilot/dom");
@@ -12293,7 +13940,7 @@ var Cursor = function(parentEl) {
 exports.Cursor = Cursor;
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/scrollbar'), ['pilot/oop','pilot/dom','pilot/event','pilot/event_emitter'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/scrollbar'), ['pilot/oop','pilot/dom','pilot/event','pilot/event_emitter'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -12343,7 +13990,7 @@ var ScrollBar = function(parent) {
 
 exports.ScrollBar = ScrollBar;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/renderloop'), ['pilot/event'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/renderloop'), ['pilot/event'], function (require, exports, module) {
 
 
 var event = require("pilot/event");
@@ -12402,10 +14049,10 @@ var RenderLoop = function(onRender) {
 
 exports.RenderLoop = RenderLoop;
 });
-require.memoize('text!'+bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/css/editor.css'), [], function () {
+require.memoize('text!'+bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/css/editor.css'), [], function () {
 return [".ace_editor {","    position: absolute;","    overflow: hidden;","","    font-family: \"Menlo\", \"Monaco\", \"Courier New\", monospace;","    font-size: 12px;  ","}","",".ace_scroller {","    position: absolute;","    overflow-x: scroll;","    overflow-y: hidden;     ","}","",".ace_content {","    position: absolute;","    box-sizing: border-box;","    -moz-box-sizing: border-box;","    -webkit-box-sizing: border-box;","}","",".ace_composition {","    position: absolute;","    background: #555;","    color: #DDD;","    z-index: 4;","}","",".ace_gutter {","    position: absolute;","    overflow-x: hidden;","    overflow-y: hidden;","    height: 100%;","}","",".ace_gutter-cell.ace_error {","    background-image: url(\"data:image/gif,GIF89a%10%00%10%00%D5%00%00%F5or%F5%87%88%F5nr%F4ns%EBmq%F5z%7F%DDJT%DEKS%DFOW%F1Yc%F2ah%CE(7%CE)8%D18E%DD%40M%F2KZ%EBU%60%F4%60m%DCir%C8%16(%C8%19*%CE%255%F1%3FR%F1%3FS%E6%AB%B5%CA%5DI%CEn%5E%F7%A2%9A%C9G%3E%E0a%5B%F7%89%85%F5yy%F6%82%80%ED%82%80%FF%BF%BF%E3%C4%C4%FF%FF%FF%FF%FF%FF%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00!%F9%04%01%00%00%25%00%2C%00%00%00%00%10%00%10%00%00%06p%C0%92pH%2C%1A%8F%C8%D2H%93%E1d4%23%E4%88%D3%09mB%1DN%B48%F5%90%40%60%92G%5B%94%20%3E%22%D2%87%24%FA%20%24%C5%06A%00%20%B1%07%02B%A38%89X.v%17%82%11%13q%10%0Fi%24%0F%8B%10%7BD%12%0Ei%09%92%09%0EpD%18%15%24%0A%9Ci%05%0C%18F%18%0B%07%04%01%04%06%A0H%18%12%0D%14%0D%12%A1I%B3%B4%B5IA%00%3B\");","    background-repeat: no-repeat;","    background-position: 4px center;","}","",".ace_gutter-cell.ace_warning {","    background-image: url(\"data:image/gif,GIF89a%10%00%10%00%D5%00%00%FF%DBr%FF%DE%81%FF%E2%8D%FF%E2%8F%FF%E4%96%FF%E3%97%FF%E5%9D%FF%E6%9E%FF%EE%C1%FF%C8Z%FF%CDk%FF%D0s%FF%D4%81%FF%D5%82%FF%D5%83%FF%DC%97%FF%DE%9D%FF%E7%B8%FF%CCl%7BQ%13%80U%15%82W%16%81U%16%89%5B%18%87%5B%18%8C%5E%1A%94d%1D%C5%83-%C9%87%2F%C6%84.%C6%85.%CD%8B2%C9%871%CB%8A3%CD%8B5%DC%98%3F%DF%9BB%E0%9CC%E1%A5U%CB%871%CF%8B5%D1%8D6%DB%97%40%DF%9AB%DD%99B%E3%B0p%E7%CC%AE%FF%FF%FF%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00!%F9%04%01%00%00%2F%00%2C%00%00%00%00%10%00%10%00%00%06a%C0%97pH%2C%1A%8FH%A1%ABTr%25%87%2B%04%82%F4%7C%B9X%91%08%CB%99%1C!%26%13%84*iJ9(%15G%CA%84%14%01%1A%97%0C%03%80%3A%9A%3E%81%84%3E%11%08%B1%8B%20%02%12%0F%18%1A%0F%0A%03'F%1C%04%0B%10%16%18%10%0B%05%1CF%1D-%06%07%9A%9A-%1EG%1B%A0%A1%A0U%A4%A5%A6BA%00%3B\");","    background-repeat: no-repeat;","    background-position: 4px center;","}","",".ace_editor .ace_sb {","    position: absolute;","    overflow-x: hidden;","    overflow-y: scroll;","    right: 0;","}","",".ace_editor .ace_sb div {","    position: absolute;","    width: 1px;","    left: 0;","}","",".ace_editor .ace_print_margin_layer {","    z-index: 0;","    position: absolute;","    overflow: hidden;","    margin: 0;","    left: 0;","    height: 100%;","    width: 100%;","}","",".ace_editor .ace_print_margin {","    position: absolute;","    height: 100%;","}","",".ace_editor textarea {","    position: fixed;","    z-index: -1;","    width: 10px;","    height: 30px;","    opacity: 0;","    background: transparent;","    appearance: none;","    border: none;","    resize: none;","    outline: none;","    overflow: hidden;","}","",".ace_layer {","    z-index: 1;","    position: absolute;","    overflow: hidden;  ","    white-space: nowrap;","    height: 100%;","    width: 100%;","}","",".ace_text-layer {","    font-family: Monaco, \"Courier New\", monospace;","    color: black;","}","",".ace_cjk {","    display: inline-block;","    text-align: center;","}","",".ace_cursor-layer {","    z-index: 4;","    cursor: text;","    pointer-events: none;","}","",".ace_cursor {","    z-index: 4;","    position: absolute;","}","",".ace_line {","    white-space: nowrap;","}","",".ace_marker-layer {","    cursor: text;","}","",".ace_marker-layer .ace_step {","    position: absolute;","    z-index: 3;","}","",".ace_marker-layer .ace_selection {","    position: absolute;","    z-index: 4;","}","",".ace_marker-layer .ace_bracket {","    position: absolute;","    z-index: 5;","}","",".ace_marker-layer .ace_active_line {","    position: absolute;","    z-index: 2;","}","",".ace_marker-layer .ace_selected_word {","    position: absolute;","    z-index: 6;","    box-sizing: border-box;","    -moz-box-sizing: border-box;","    -webkit-box-sizing: border-box;","}","",".ace_dragging .ace_marker-layer, .ace_dragging .ace_text-layer {","  cursor: move;","}",""].join("\n");
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/undomanager'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/undomanager'), [], function (require, exports, module) {
 
 
 var UndoManager = function() {
@@ -12418,6 +14065,7 @@ var UndoManager = function() {
         var deltas = options.args[0];
         this.$doc  = options.args[1];
         this.$undoStack.push(deltas);
+        this.$redoStack = [];
     };
 
     this.undo = function() {
@@ -12435,7 +14083,7 @@ var UndoManager = function() {
             this.$undoStack.push(deltas);
         }
     };
-    
+
     this.reset = function() {
         this.$undoStack = [];
         this.$redoStack = [];
@@ -12453,7 +14101,7 @@ var UndoManager = function() {
 
 exports.UndoManager = UndoManager;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/theme/textmate'), ['pilot/dom'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/theme/textmate'), ['pilot/dom'], function (require, exports, module) {
 
 
     var dom = require("pilot/dom");
@@ -12523,6 +14171,11 @@ require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca5
 .ace-tm .ace_line .ace_invalid {\
   background-color: rgb(153, 0, 0);\
   color: white;\
+}\
+\
+.ace-tm .ace_line .ace_fold {\
+    background-color: #E4E4E4;\
+    border-radius: 3px;\
 }\
 \
 .ace-tm .ace_line .ace_support.ace_function {\
@@ -12605,7 +14258,7 @@ require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca5
 
     exports.cssClass = "ace-tm";
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/index'), ['pilot/fixoldbrowsers','pilot/types/basic','pilot/types/command','pilot/types/settings','pilot/commands/settings','pilot/commands/basic','pilot/settings/canon','pilot/canon','pilot/types/basic','pilot/types/command','pilot/types/settings','pilot/commands/settings','pilot/commands/basic','pilot/settings/canon','pilot/canon'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/index'), ['pilot/fixoldbrowsers','pilot/types/basic','pilot/types/command','pilot/types/settings','pilot/commands/settings','pilot/commands/basic','pilot/settings/canon','pilot/canon','pilot/types/basic','pilot/types/command','pilot/types/settings','pilot/commands/settings','pilot/commands/basic','pilot/settings/canon','pilot/canon'], function (require, exports, module) {
 
 
 exports.startup = function(data, reason) {
@@ -12634,7 +14287,7 @@ exports.shutdown = function(data, reason) {
 
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/types/basic'), ['pilot/types'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/types/basic'), ['pilot/types'], function (require, exports, module) {
 
 
 var types = require("pilot/types");
@@ -12929,7 +14582,7 @@ exports.shutdown = function() {
 
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/types/command'), ['pilot/canon','pilot/types/basic','pilot/types'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/types/command'), ['pilot/canon','pilot/types/basic','pilot/types'], function (require, exports, module) {
 
 
 var canon = require("pilot/canon");
@@ -12967,7 +14620,7 @@ exports.shutdown = function() {
 
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/types/settings'), ['pilot/types/basic','pilot/types/basic','pilot/types','pilot/settings'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/types/settings'), ['pilot/types/basic','pilot/types/basic','pilot/types','pilot/settings'], function (require, exports, module) {
 
 
 var SelectionType = require('pilot/types/basic').SelectionType;
@@ -13069,7 +14722,7 @@ exports.shutdown = function(data, reason) {
 
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/commands/settings'), ['pilot/canon'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/commands/settings'), ['pilot/canon'], function (require, exports, module) {
 
 
 
@@ -13168,7 +14821,7 @@ exports.shutdown = function(data, reason) {
 
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/commands/basic'), ['pilot/typecheck','pilot/canon','pilot/canon'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/commands/basic'), ['pilot/typecheck','pilot/canon','pilot/canon'], function (require, exports, module) {
 
 
 
@@ -13406,7 +15059,7 @@ exports.shutdown = function(data, reason) {
 
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/settings/canon'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/settings/canon'), [], function (require, exports, module) {
 
 
 
@@ -13427,7 +15080,7 @@ exports.shutdown = function(data, reason) {
 
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/defaults'), ['ace/settings/default-settings'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/defaults'), ['ace/settings/default-settings'], function (require, exports, module) {
 
 
 var settings = require("ace/settings/default-settings")
@@ -13441,7 +15094,7 @@ exports.shutdown = function shutdown(data, reason) {
 }
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/settings/default-settings'), ['pilot/types','pilot/types/basic'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/settings/default-settings'), ['pilot/types','pilot/types/basic'], function (require, exports, module) {
 
 
 var types = require('pilot/types')
@@ -13501,8 +15154,101 @@ exports.shutdown = function shutdown(data, reason) {
 }
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/539c1b401b1ed3c4feb4e16c715a1e9fd4289992@/package.json'), [], function() { return {"name":"cockpit","description":"Command line component for Skywriter/Ace/Cloud9/etc","version":"0.1.1","homepage":"http://github.com/joewalker/cockpit","engines":{"node":">= 0.1.102","teleport":">=0.2.0"},"dependencies":{"pilot":">=0.1.1"},"overlay":{"teleport":{"directories":{"lib":"lib/cockpit"}}},"author":"Joe Walker <jwalker@mozilla.com>","main":"lib/cockpit","repository":{"type":"git","url":"http://github.com/joewalker/cockpit.git"},"licenses":[{"type":"LGPLv3","url":"http://www.gnu.org/licenses/lgpl-3.0.txt"}],"uid":"https://github.com/ajaxorg/cockpit/","directories":{"lib":"lib/cockpit"},"mappings":{"cockpit":{"location":"" + bravojs.mainModuleDir + "/539c1b401b1ed3c4feb4e16c715a1e9fd4289992"},"pilot":{"location":"" + bravojs.mainModuleDir + "/ebd88462734df1207a34b544b42917b1f1f52813"}}}; });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/539c1b401b1ed3c4feb4e16c715a1e9fd4289992@/lib/cockpit/index'), ['pilot/index','cockpit/cli','cockpit/ui/settings','cockpit/ui/cli_view','cockpit/commands/basic'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/matching_brace_outdent'), ['ace/range'], function (require, exports, module) {
+
+
+var Range = require("ace/range").Range;
+
+var MatchingBraceOutdent = function() {};
+
+(function() {
+
+    this.checkOutdent = function(line, input) {
+        if (! /^\s+$/.test(line))
+            return false;
+
+        return /^\s*\}/.test(input);
+    };
+
+    this.autoOutdent = function(doc, row) {
+        var line = doc.getLine(row);
+        var match = line.match(/^(\s*\})/);
+
+        if (!match) return 0;
+
+        var column = match[1].length;
+        var openBracePos = doc.findMatchingBracket({row: row, column: column});
+
+        if (!openBracePos || openBracePos.row == row) return 0;
+
+        var indent = this.$getIndent(doc.getLine(openBracePos.row));
+        doc.replace(new Range(row, 0, row, column-1), indent);
+    };
+
+    this.$getIndent = function(line) {
+        var match = line.match(/^(\s+)/);
+        if (match) {
+            return match[1];
+        }
+
+        return "";
+    };
+
+}).call(MatchingBraceOutdent.prototype);
+
+exports.MatchingBraceOutdent = MatchingBraceOutdent;
+});
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/doc_comment_highlight_rules'), ['pilot/oop','ace/mode/text_highlight_rules'], function (require, exports, module) {
+
+
+var oop = require("pilot/oop");
+var TextHighlightRules = require("ace/mode/text_highlight_rules").TextHighlightRules;
+
+var DocCommentHighlightRules = function() {
+
+    this.$rules = {
+        "start" : [ {
+            token : "comment.doc", // closing comment
+            regex : "\\*\\/",
+            next : "start"
+        }, {
+            token : "comment.doc.tag",
+            regex : "@[\\w\\d_]+" // TODO: fix email addresses
+        }, {
+            token : "comment.doc",
+            regex : "\s+"
+        }, {
+            token : "comment.doc",
+            regex : "TODO"
+        }, {
+            token : "comment.doc",
+            regex : "[^@\\*]+"
+        }, {
+            token : "comment.doc",
+            regex : "."
+        }]
+    };
+};
+
+oop.inherits(DocCommentHighlightRules, TextHighlightRules);
+
+(function() {
+
+    this.getStartRule = function(start) {
+        return {
+            token : "comment.doc", // doc comment
+            regex : "\\/\\*(?=\\*)",
+            next: start
+        };
+    };
+
+}).call(DocCommentHighlightRules.prototype);
+
+exports.DocCommentHighlightRules = DocCommentHighlightRules;
+
+});
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/b5bd9e5093176e86aa6f6c4d581342361d8c923f@/package.json'), [], function() { return {"name":"cockpit","description":"Command line component for Skywriter/Ace/Cloud9/etc","version":"0.1.1","homepage":"http://github.com/joewalker/cockpit","engines":{"node":">= 0.1.102","teleport":">=0.2.0"},"dependencies":{"pilot":">=0.1.1"},"overlay":{"teleport":{"directories":{"lib":"lib/cockpit"}}},"author":"Joe Walker <jwalker@mozilla.com>","main":"lib/cockpit","repository":{"type":"git","url":"http://github.com/joewalker/cockpit.git"},"licenses":[{"type":"LGPLv3","url":"http://www.gnu.org/licenses/lgpl-3.0.txt"}],"uid":"https://github.com/ajaxorg/cockpit/","directories":{"lib":"lib/cockpit"},"mappings":{"cockpit":{"location":"" + bravojs.mainModuleDir + "/b5bd9e5093176e86aa6f6c4d581342361d8c923f"},"pilot":{"location":"" + bravojs.mainModuleDir + "/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c"}}}; });
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/b5bd9e5093176e86aa6f6c4d581342361d8c923f@/lib/cockpit/index'), ['pilot/index','cockpit/cli','cockpit/ui/settings','cockpit/ui/cli_view','cockpit/commands/basic'], function (require, exports, module) {
 
 
 
@@ -13523,7 +15269,7 @@ exports.shutdown(data, reason) {
 
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/539c1b401b1ed3c4feb4e16c715a1e9fd4289992@/lib/cockpit/cli'), ['pilot/console','pilot/lang','pilot/oop','pilot/event_emitter','pilot/types','pilot/types','pilot/types','pilot/canon'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/b5bd9e5093176e86aa6f6c4d581342361d8c923f@/lib/cockpit/cli'), ['pilot/console','pilot/lang','pilot/oop','pilot/event_emitter','pilot/types','pilot/types','pilot/types','pilot/canon'], function (require, exports, module) {
 
 
 
@@ -14656,7 +16402,7 @@ exports.CliRequisition = CliRequisition;
 
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/539c1b401b1ed3c4feb4e16c715a1e9fd4289992@/lib/cockpit/ui/settings'), ['pilot/types','pilot/types/basic'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/b5bd9e5093176e86aa6f6c4d581342361d8c923f@/lib/cockpit/ui/settings'), ['pilot/types','pilot/types/basic'], function (require, exports, module) {
 
 
 
@@ -14705,7 +16451,7 @@ exports.shutdown = function(data, reason) {
 
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/539c1b401b1ed3c4feb4e16c715a1e9fd4289992@/lib/cockpit/ui/cli_view'), ['text!cockpit/ui/cli_view.css','pilot/event','pilot/dom','pilot/event','pilot/keys','pilot/canon','pilot/types','cockpit/cli','cockpit/cli','cockpit/ui/request_view'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/b5bd9e5093176e86aa6f6c4d581342361d8c923f@/lib/cockpit/ui/cli_view'), ['text!cockpit/ui/cli_view.css','pilot/event','pilot/dom','pilot/event','pilot/keys','pilot/canon','pilot/types','cockpit/cli','cockpit/cli','cockpit/ui/request_view'], function (require, exports, module) {
 
 
 
@@ -15073,10 +16819,10 @@ exports.CliView = CliView;
 
 
 });
-require.memoize('text!'+bravojs.realpath(bravojs.mainModuleDir + '/539c1b401b1ed3c4feb4e16c715a1e9fd4289992@/lib/cockpit/ui/cli_view.css'), [], function () {
+require.memoize('text!'+bravojs.realpath(bravojs.mainModuleDir + '/b5bd9e5093176e86aa6f6c4d581342361d8c923f@/lib/cockpit/ui/cli_view.css'), [], function () {
 return ["","#cockpitInput { padding-left: 16px; }","",".cptOutput { overflow: auto; position: absolute; z-index: 999; display: none; }","",".cptCompletion { padding: 0; position: absolute; z-index: -1000; }",".cptCompletion.VALID { background: #FFF; }",".cptCompletion.INCOMPLETE { background: #DDD; }",".cptCompletion.INVALID { background: #DDD; }",".cptCompletion span { color: #FFF; }",".cptCompletion span.INCOMPLETE { color: #DDD; border-bottom: 2px dotted #F80; }",".cptCompletion span.INVALID { color: #DDD; border-bottom: 2px dotted #F00; }","span.cptPrompt { color: #66F; font-weight: bold; }","","",".cptHints {","  color: #000;","  position: absolute;","  border: 1px solid rgba(230, 230, 230, 0.8);","  background: rgba(250, 250, 250, 0.8);","  -moz-border-radius-topleft: 10px;","  -moz-border-radius-topright: 10px;","  border-top-left-radius: 10px; border-top-right-radius: 10px;","  z-index: 1000;","  padding: 8px;","  display: none;","}","",".cptFocusPopup { display: block; }",".cptFocusPopup.cptNoPopup { display: none; }","",".cptHints ul { margin: 0; padding: 0 15px; }","",".cptGt { font-weight: bold; font-size: 120%; }",""].join("\n");
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/539c1b401b1ed3c4feb4e16c715a1e9fd4289992@/lib/cockpit/ui/request_view'), ['pilot/dom','pilot/event','text!cockpit/ui/request_view.html','pilot/domtemplate','text!cockpit/ui/request_view.css'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/b5bd9e5093176e86aa6f6c4d581342361d8c923f@/lib/cockpit/ui/request_view'), ['pilot/dom','pilot/event','text!cockpit/ui/request_view.html','pilot/domtemplate','text!cockpit/ui/request_view.css'], function (require, exports, module) {
 
 
 var dom = require("pilot/dom");
@@ -15218,10 +16964,10 @@ exports.RequestView = RequestView;
 
 
 });
-require.memoize('text!'+bravojs.realpath(bravojs.mainModuleDir + '/539c1b401b1ed3c4feb4e16c715a1e9fd4289992@/lib/cockpit/ui/request_view.html'), [], function () {
+require.memoize('text!'+bravojs.realpath(bravojs.mainModuleDir + '/b5bd9e5093176e86aa6f6c4d581342361d8c923f@/lib/cockpit/ui/request_view.html'), [], function () {
 return ["","<div class=cptRow>","  <!-- The div for the input (i.e. what was typed) -->","  <div class=\"cptRowIn\" save=\"${rowin}\"","      onclick=\"${copyToInput}\"","      ondblclick=\"${executeRequest}\">","","    <!-- What the user actually typed -->","    <div class=\"cptGt\">&gt; </div>","    <div class=\"cptOutTyped\">${request.typed}</div>","","    <!-- The extra details that appear on hover -->","    <div class=cptHover save=\"${duration}\"></div>","    <img class=cptHover onclick=\"${hideOutput}\" save=\"${hide}\"","        alt=\"Hide command output\" _src=\"${imageUrl('images/minus.png')}\"/>","    <img class=\"cptHover cptHidden\" onclick=\"${showOutput}\" save=\"${show}\"","        alt=\"Show command output\" _src=\"${imageUrl('images/plus.png')}\"/>","    <img class=cptHover onclick=\"${remove}\"","        alt=\"Remove this command from the history\"","        _src=\"${imageUrl('images/closer.png')}\"/>","","  </div>","","  <!-- The div for the command output -->","  <div class=\"cptRowOut\" save=\"${rowout}\">","    <div class=\"cptRowOutput\" save=\"${output}\"></div>","    <img _src=\"${imageUrl('images/throbber.gif')}\" save=\"${throb}\"/>","  </div>","</div>",""].join("\n");
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/domtemplate'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/domtemplate'), [], function (require, exports, module) {
 
 
 
@@ -15590,10 +17336,10 @@ exports.Templater = Templater;
 
 
 });
-require.memoize('text!'+bravojs.realpath(bravojs.mainModuleDir + '/539c1b401b1ed3c4feb4e16c715a1e9fd4289992@/lib/cockpit/ui/request_view.css'), [], function () {
+require.memoize('text!'+bravojs.realpath(bravojs.mainModuleDir + '/b5bd9e5093176e86aa6f6c4d581342361d8c923f@/lib/cockpit/ui/request_view.css'), [], function () {
 return ["",".cptRowIn {","  display: box; display: -moz-box; display: -webkit-box;","  box-orient: horizontal; -moz-box-orient: horizontal; -webkit-box-orient: horizontal;","  box-align: center; -moz-box-align: center; -webkit-box-align: center;","  color: #333;","  background-color: #EEE;","  width: 100%;","  font-family: consolas, courier, monospace;","}",".cptRowIn > * { padding-left: 2px; padding-right: 2px; }",".cptRowIn > img { cursor: pointer; }",".cptHover { display: none; }",".cptRowIn:hover > .cptHover { display: block; }",".cptRowIn:hover > .cptHover.cptHidden { display: none; }",".cptOutTyped {","  box-flex: 1; -moz-box-flex: 1; -webkit-box-flex: 1;","  font-weight: bold; color: #000; font-size: 120%;","}",".cptRowOutput { padding-left: 10px; line-height: 1.2em; }",".cptRowOutput strong,",".cptRowOutput b,",".cptRowOutput th,",".cptRowOutput h1,",".cptRowOutput h2,",".cptRowOutput h3 { color: #000; }",".cptRowOutput a { font-weight: bold; color: #666; text-decoration: none; }",".cptRowOutput a: hover { text-decoration: underline; cursor: pointer; }",".cptRowOutput input[type=password],",".cptRowOutput input[type=text],",".cptRowOutput textarea {","  color: #000; font-size: 120%;","  background: transparent; padding: 3px;","  border-radius: 5px; -moz-border-radius: 5px; -webkit-border-radius: 5px;","}",".cptRowOutput table,",".cptRowOutput td,",".cptRowOutput th { border: 0; padding: 0 2px; }",".cptRowOutput .right { text-align: right; }",""].join("\n");
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/539c1b401b1ed3c4feb4e16c715a1e9fd4289992@/lib/cockpit/commands/basic'), ['pilot/canon','pilot/canon'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/b5bd9e5093176e86aa6f6c4d581342361d8c923f@/lib/cockpit/commands/basic'), ['pilot/canon','pilot/canon'], function (require, exports, module) {
 
 
 
@@ -16050,7 +17796,7 @@ exports.launch = function(env) {
 };
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/javascript'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/javascript_highlight_rules','ace/mode/matching_brace_outdent','ace/range','ace/worker/worker_client'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/javascript'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/javascript_highlight_rules','ace/mode/matching_brace_outdent','ace/range','ace/worker/worker_client'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -16183,7 +17929,7 @@ oop.inherits(Mode, TextMode);
 
 exports.Mode = Mode;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/javascript_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/doc_comment_highlight_rules','ace/mode/text_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/javascript_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/doc_comment_highlight_rules','ace/mode/text_highlight_rules'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -16197,7 +17943,8 @@ var JavaScriptHighlightRules = function() {
 
     var keywords = lang.arrayToMap(
         ("break|case|catch|continue|default|delete|do|else|finally|for|function|" +
-        "if|in|instanceof|new|return|switch|throw|try|typeof|var|while|with").split("|")
+        "if|in|instanceof|new|return|switch|throw|try|typeof|let|var|while|with|" +
+        "const|yield|import|get|set").split("|")
     );
 
     var buildinConstants = lang.arrayToMap(
@@ -16205,8 +17952,8 @@ var JavaScriptHighlightRules = function() {
     );
 
     var futureReserved = lang.arrayToMap(
-        ("class|enum|extends|super|const|export|import|implements|let|private|" +
-        "public|yield|interface|package|protected|static").split("|")
+        ("class|enum|extends|super|export|implements|private|" +
+        "public|interface|package|protected|static").split("|")
     );
 
     // regexp must not have capturing parentheses. Use (?:) instead.
@@ -16324,99 +18071,6 @@ oop.inherits(JavaScriptHighlightRules, TextHighlightRules);
 
 exports.JavaScriptHighlightRules = JavaScriptHighlightRules;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/doc_comment_highlight_rules'), ['pilot/oop','ace/mode/text_highlight_rules'], function (require, exports, module) {
-
-
-var oop = require("pilot/oop");
-var TextHighlightRules = require("ace/mode/text_highlight_rules").TextHighlightRules;
-
-var DocCommentHighlightRules = function() {
-
-    this.$rules = {
-        "start" : [ {
-            token : "comment.doc", // closing comment
-            regex : "\\*\\/",
-            next : "start"
-        }, {
-            token : "comment.doc.tag",
-            regex : "@[\\w\\d_]+" // TODO: fix email addresses
-        }, {
-            token : "comment.doc",
-            regex : "\s+"
-        }, {
-            token : "comment.doc",
-            regex : "TODO"
-        }, {
-            token : "comment.doc",
-            regex : "[^@\\*]+"
-        }, {
-            token : "comment.doc",
-            regex : "."
-        }]
-    };
-};
-
-oop.inherits(DocCommentHighlightRules, TextHighlightRules);
-
-(function() {
-
-    this.getStartRule = function(start) {
-        return {
-            token : "comment.doc", // doc comment
-            regex : "\\/\\*(?=\\*)",
-            next: start
-        };
-    };
-
-}).call(DocCommentHighlightRules.prototype);
-
-exports.DocCommentHighlightRules = DocCommentHighlightRules;
-
-});
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/matching_brace_outdent'), ['ace/range'], function (require, exports, module) {
-
-
-var Range = require("ace/range").Range;
-
-var MatchingBraceOutdent = function() {};
-
-(function() {
-
-    this.checkOutdent = function(line, input) {
-        if (! /^\s+$/.test(line))
-            return false;
-
-        return /^\s*\}/.test(input);
-    };
-
-    this.autoOutdent = function(doc, row) {
-        var line = doc.getLine(row);
-        var match = line.match(/^(\s*\})/);
-
-        if (!match) return 0;
-
-        var column = match[1].length;
-        var openBracePos = doc.findMatchingBracket({row: row, column: column});
-
-        if (!openBracePos || openBracePos.row == row) return 0;
-
-        var indent = this.$getIndent(doc.getLine(openBracePos.row));
-        doc.replace(new Range(row, 0, row, column-1), indent);
-    };
-
-    this.$getIndent = function(line) {
-        var match = line.match(/^(\s+)/);
-        if (match) {
-            return match[1];
-        }
-
-        return "";
-    };
-
-}).call(MatchingBraceOutdent.prototype);
-
-exports.MatchingBraceOutdent = MatchingBraceOutdent;
-});
 require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/a3d9ddf257e98144c883cd2dbc03ab62243dbc09@/modules/ace/worker/worker_client'), ['pilot/oop','pilot/event_emitter'], function (require, exports, module) {
 
 
@@ -16496,7 +18150,7 @@ var WorkerClient = function(topLevelNamespaces, packagedJs, module, classname) {
 exports.WorkerClient = WorkerClient;
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/css'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/css_highlight_rules','ace/mode/matching_brace_outdent'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/css'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/css_highlight_rules','ace/mode/matching_brace_outdent'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -16543,7 +18197,7 @@ oop.inherits(Mode, TextMode);
 exports.Mode = Mode;
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/css_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/text_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/css_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/text_highlight_rules'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -16741,7 +18395,7 @@ oop.inherits(CssHighlightRules, TextHighlightRules);
 exports.CssHighlightRules = CssHighlightRules;
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/html'), ['pilot/oop','ace/mode/text','ace/mode/javascript','ace/mode/css','ace/tokenizer','ace/mode/html_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/html'), ['pilot/oop','ace/mode/text','ace/mode/javascript','ace/mode/css','ace/tokenizer','ace/mode/html_highlight_rules'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -16798,7 +18452,7 @@ oop.inherits(Mode, TextMode);
             args[0] = split[1];
             return this.$css[method].apply(this.$css, args);
         }
-
+        
         return defaultHandler ? defaultHandler() : undefined;
     };
 
@@ -16806,7 +18460,7 @@ oop.inherits(Mode, TextMode);
 
 exports.Mode = Mode;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/html_highlight_rules'), ['pilot/oop','ace/mode/css_highlight_rules','ace/mode/javascript_highlight_rules','ace/mode/text_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/html_highlight_rules'), ['pilot/oop','ace/mode/css_highlight_rules','ace/mode/javascript_highlight_rules','ace/mode/text_highlight_rules'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -16818,6 +18472,36 @@ var HtmlHighlightRules = function() {
 
     // regexp must not have capturing parentheses
     // regexps are ordered -> the first match is used
+
+    function string(state) {
+        return [
+            {
+            token : "string",
+            regex : '".*?"'
+        }, {
+            token : "string", // multi line string start
+            regex : '["].*$',
+            next : state + "-qqstring"
+        }, {
+            token : "string",
+            regex : "'.*?'"
+        }, {
+            token : "string", // multi line string start
+            regex : "['].*$",
+            next : state + "-qstring"
+        }]
+    }
+    
+    function multiLineString(quote, state) {
+        return [{
+            token : "string",
+            regex : ".*" + quote,
+            next : state
+        }, {
+            token : "string",
+            regex : '.+'
+        }]
+    }
 
     this.$rules = {
         start : [ {
@@ -16861,13 +18545,7 @@ var HtmlHighlightRules = function() {
         }, {
             token : "text",
             regex : "\\s+"
-        }, {
-            token : "string",
-            regex : '".*?"'
-        }, {
-            token : "string",
-            regex : "'.*?'"
-        } ],
+        }].concat(string("script")),
 
         css : [ {
             token : "text",
@@ -16879,13 +18557,7 @@ var HtmlHighlightRules = function() {
         }, {
             token : "text",
             regex : "\\s+"
-        }, {
-            token : "string",
-            regex : '".*?"'
-        }, {
-            token : "string",
-            regex : "'.*?'"
-        } ],
+        }].concat(string("css")),
 
         tag : [ {
             token : "text",
@@ -16897,14 +18569,15 @@ var HtmlHighlightRules = function() {
         }, {
             token : "text",
             regex : "\\s+"
-        }, {
-            token : "string",
-            regex : '".*?"'
-        }, {
-            token : "string",
-            regex : "'.*?'"
-        } ],
-
+        }].concat(string("tag")),
+        
+        "css-qstring": multiLineString("'", "css"),
+        "css-qqstring": multiLineString('"', "css"),
+        "script-qstring": multiLineString("'", "script"),
+        "script-qqstring": multiLineString('"', "script"),
+        "tag-qstring": multiLineString("'", "tag"),
+        "tag-qqstring": multiLineString('"', "tag"),
+        
         cdata : [ {
             token : "text",
             regex : "\\]\\]>",
@@ -16952,7 +18625,7 @@ oop.inherits(HtmlHighlightRules, TextHighlightRules);
 
 exports.HtmlHighlightRules = HtmlHighlightRules;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/xml'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/xml_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/xml'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/xml_highlight_rules'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -16976,7 +18649,7 @@ oop.inherits(Mode, TextMode);
 
 exports.Mode = Mode;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/xml_highlight_rules'), ['pilot/oop','ace/mode/text_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/xml_highlight_rules'), ['pilot/oop','ace/mode/text_highlight_rules'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -17025,10 +18698,36 @@ var XmlHighlightRules = function() {
             token : "string",
             regex : '".*?"'
         }, {
+            token : "string", // multi line string start
+            regex : '["].*$',
+            next : "qqstring"
+        }, {
             token : "string",
             regex : "'.*?'"
-        } ],
+        }, {
+            token : "string", // multi line string start
+            regex : "['].*$",
+            next : "qstring"
+        }],
 
+        qstring: [{
+            token : "string",
+            regex : ".*'",
+            next : "tag"
+        }, {
+            token : "string",
+            regex : '.+'
+        }],
+        
+        qqstring: [{
+            token : "string",
+            regex : ".*\"",
+            next : "tag"
+        }, {
+            token : "string",
+            regex : '.+'
+        }],
+        
         cdata : [ {
             token : "text",
             regex : "\\]\\]>",
@@ -17056,7 +18755,7 @@ oop.inherits(XmlHighlightRules, TextHighlightRules);
 
 exports.XmlHighlightRules = XmlHighlightRules;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/python'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/python_highlight_rules','ace/mode/matching_brace_outdent','ace/range'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/python'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/python_highlight_rules','ace/mode/matching_brace_outdent','ace/range'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -17136,7 +18835,7 @@ oop.inherits(Mode, TextMode);
 
 exports.Mode = Mode;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/python_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/text_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/python_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/text_highlight_rules'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -17273,7 +18972,7 @@ oop.inherits(PythonHighlightRules, TextHighlightRules);
 
 exports.PythonHighlightRules = PythonHighlightRules;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/php'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/php_highlight_rules','ace/mode/matching_brace_outdent','ace/range'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/php'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/php_highlight_rules','ace/mode/matching_brace_outdent','ace/range'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -17353,7 +19052,7 @@ oop.inherits(Mode, TextMode);
 
 exports.Mode = Mode;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/php_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/doc_comment_highlight_rules','ace/mode/text_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/php_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/doc_comment_highlight_rules','ace/mode/text_highlight_rules'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -17862,7 +19561,7 @@ var PhpHighlightRules = function() {
                     else if (value == "debugger")
                         return "invalid.deprecated";
                     else
-                        if(value.match(/^(\$[a-zA-Z][a-zA-Z0-9_]*|self|parent)$/))
+                        if(value.match(/^(\$[a-zA-Z_][a-zA-Z0-9_]*|self|parent)$/))
                             return "variable";
                         return "identifier";
                 },
@@ -17923,7 +19622,7 @@ oop.inherits(PhpHighlightRules, TextHighlightRules);
 
 exports.PhpHighlightRules = PhpHighlightRules;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/java'), ['pilot/oop','ace/mode/javascript','ace/tokenizer','ace/mode/java_highlight_rules','ace/mode/matching_brace_outdent'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/java'), ['pilot/oop','ace/mode/javascript','ace/tokenizer','ace/mode/java_highlight_rules','ace/mode/matching_brace_outdent'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -17948,7 +19647,7 @@ oop.inherits(Mode, JavaScriptMode);
 
 exports.Mode = Mode;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/java_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/doc_comment_highlight_rules','ace/mode/text_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/java_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/doc_comment_highlight_rules','ace/mode/text_highlight_rules'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -18116,7 +19815,7 @@ oop.inherits(JavaHighlightRules, TextHighlightRules);
 
 exports.JavaHighlightRules = JavaHighlightRules;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/csharp'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/csharp_highlight_rules','ace/mode/matching_brace_outdent'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/csharp'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/csharp_highlight_rules','ace/mode/matching_brace_outdent'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -18171,7 +19870,7 @@ oop.inherits(Mode, TextMode);
 
 exports.Mode = Mode;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/csharp_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/doc_comment_highlight_rules','ace/mode/text_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/csharp_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/doc_comment_highlight_rules','ace/mode/text_highlight_rules'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -18295,7 +19994,7 @@ oop.inherits(CSharpHighlightRules, TextHighlightRules);
 
 exports.CSharpHighlightRules = CSharpHighlightRules;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/ruby'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/ruby_highlight_rules','ace/mode/matching_brace_outdent','ace/range'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/ruby'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/ruby_highlight_rules','ace/mode/matching_brace_outdent','ace/range'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -18375,7 +20074,7 @@ oop.inherits(Mode, TextMode);
 
 exports.Mode = Mode;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/ruby_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/text_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/ruby_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/text_highlight_rules'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -18385,24 +20084,52 @@ var TextHighlightRules = require("ace/mode/text_highlight_rules").TextHighlightR
 var RubyHighlightRules = function() {
 
     var builtinFunctions = lang.arrayToMap(
-        ("abort|Array|at_exit|autoload|binding|block_given?|callcc|caller|catch|chomp|chomp!|chop|chop!|eval|exec|exit|exit!" +
-        "fail|Float|fork|format|gets|global_variables|gsub|gsub!|Integer|lambda|load|local_variables|loop|open|p|print|" +
-        "printf|proc|putc|puts|raise|rand|readline|readlines|require|scan|select|set_trace_func|sleep|split|sprintf|srand|" +
-        "String|syscall|system|sub|sub!|test|throw|trace_var|trap|untrace_var|" +
-        "atan2|cos|exp|frexp|ldexp|log|log10|sin|sqrt|tan").split("|")
+        ("abort|Array|assert|assert_equal|assert_not_equal|assert_same|assert_not_same|" +
+        "assert_nil|assert_not_nil|assert_match|assert_no_match|assert_in_delta|assert_throws|" + 
+        "assert_raise|assert_nothing_raised|assert_instance_of|assert_kind_of|assert_respond_to|" +
+        "assert_operator|assert_send|assert_difference|assert_no_difference|assert_recognizes|" +
+        "assert_generates|assert_response|assert_redirected_to|assert_template|assert_select|" +
+        "assert_select_email|assert_select_rjs|assert_select_encoded|css_select|at_exit|" +
+        "attr|attr_writer|attr_reader|attr_accessor|attr_accessible|autoload|binding|block_given?|callcc|" +
+        "caller|catch|chomp|chomp!|chop|chop!|defined?|delete_via_redirect|eval|exec|exit|" +
+        "exit!|fail|Float|flunk|follow_redirect!|fork|form_for|form_tag|format|gets|global_variables|gsub|" +
+        "gsub!|get_via_redirect|h|host!|https?|https!|include|Integer|lambda|link_to|" +
+        "link_to_unless_current|link_to_function|link_to_remote|load|local_variables|loop|open|open_session|" +
+        "p|print|printf|proc|putc|puts|post_via_redirect|put_via_redirect|raise|rand|" +
+        "raw|readline|readlines|redirect?|request_via_redirect|require|scan|select|" +
+        "set_trace_func|sleep|split|sprintf|srand|String|stylesheet_link_tag|syscall|system|sub|sub!|test|" +
+        "throw|trace_var|trap|untrace_var|atan2|cos|exp|frexp|ldexp|log|log10|sin|sqrt|tan|" +
+        "render|javascript_include_tag|csrf_meta_tag|label_tag|text_field_tag|submit_tag|check_box_tag|" +
+        "content_tag|radio_button_tag|text_area_tag|password_field_tag|hidden_field_tag|" +
+        "fields_for|select_tag|options_for_select|options_from_collection_for_select|collection_select|" +
+        "time_zone_select|select_date|select_time|select_datetime|date_select|time_select|datetime_select|" +
+        "select_year|select_month|select_day|select_hour|select_minute|select_second|file_field_tag|" +
+        "file_field|respond_to|skip_before_filter|around_filter|after_filter|verify|" +
+        "protect_from_forgery|rescue_from|helper_method|redirect_to|before_filter|" +
+        "send_data|send_file|validates_presence_of|validates_uniqueness_of|validates_length_of|" +
+        "validates_format_of|validates_acceptance_of|validates_associated|validates_exclusion_of|" +
+        "validates_inclusion_of|validates_numericality_of|validates_with|validates_each|" +
+        "authenticate_or_request_with_http_basic|authenticate_or_request_with_http_digest|" +
+        "filter_parameter_logging|match|get|post|resources|redirect|scope|assert_routing|" +
+        "translate|localize|extract_locale_from_tld|t|l|caches_page|expire_page|caches_action|expire_action|" +
+        "cache|expire_fragment|expire_cache_for|observe|cache_sweeper|" +
+        "has_many|has_one|belongs_to|has_and_belongs_to_many").split("|")
     );
 
     var keywords = lang.arrayToMap(
-        ("alias|and|BEGIN|begin|break|case|class|def|defined|do|else|elsif|END|end|ensure|__FILE__|finally|for|" +
-        "if|in|__LINE__|module|next|not|or|redo|rescue|retry|return|super|then|undef|unless|until|when|while|yield").split("|")
+        ("alias|and|BEGIN|begin|break|case|class|def|defined|do|else|elsif|END|end|ensure|" +
+        "__FILE__|finally|for|gem|if|in|__LINE__|module|next|not|or|private|protected|public|" + 
+        "redo|rescue|retry|return|super|then|undef|unless|until|when|while|yield").split("|")
     );
 
     var buildinConstants = lang.arrayToMap(
-        ("true|TRUE|false|FALSE|nil|NIL|ARGF|ARGV|DATA|ENV|RUBY_PLATFORM|RUBY_RELEASE_DATE|RUBY_VERSION|STDERR|STDIN|STDOUT|TOPLEVEL_BINDING").split("|")
+        ("true|TRUE|false|FALSE|nil|NIL|ARGF|ARGV|DATA|ENV|RUBY_PLATFORM|RUBY_RELEASE_DATE|" +
+        "RUBY_VERSION|STDERR|STDIN|STDOUT|TOPLEVEL_BINDING").split("|")
     );
 
     var builtinVariables = lang.arrayToMap(
-        ("\$DEBUG|\$defout|\$FILENAME|\$LOAD_PATH|\$SAFE|\$stdin|\$stdout|\$stderr|\$VERBOSE").split("|")
+        ("\$DEBUG|\$defout|\$FILENAME|\$LOAD_PATH|\$SAFE|\$stdin|\$stdout|\$stderr|\$VERBOSE|" +
+        "$!|root_url|flash|session|cookies|params|request|response|logger").split("|")
     );
 
     // regexp must not have capturing parentheses. Use (?:) instead.
@@ -18426,6 +20153,18 @@ var RubyHighlightRules = function() {
 	        }, {
                 token : "string", // single line
                 regex : "['](?:(?:\\\\.)|(?:[^'\\\\]))*?[']"
+	        }, {
+                token : "string", // backtick string
+                regex : "[`](?:(?:\\\\.)|(?:[^'\\\\]))*?[`]"
+	        }, {
+                token : "variable.instancce", // instance variable
+                regex : "@{1,2}(?:[a-zA-Z_]|\d)+"
+	        }, {
+                token : "variable.class", // class name
+                regex : "[A-Z](?:[a-zA-Z_]|\d)+"
+	        }, {
+                token : "string", // symbol
+                regex : "[:](?:[a-zA-Z]|\d)+"
 	        }, {
 	            token : "constant.numeric", // hex
 	            regex : "0[xX][0-9a-fA-F]+\\b"
@@ -18486,7 +20225,7 @@ oop.inherits(RubyHighlightRules, TextHighlightRules);
 
 exports.RubyHighlightRules = RubyHighlightRules;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/c_cpp'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/c_cpp_highlight_rules','ace/mode/matching_brace_outdent','ace/range'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/c_cpp'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/c_cpp_highlight_rules','ace/mode/matching_brace_outdent','ace/range'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -18577,7 +20316,7 @@ oop.inherits(Mode, TextMode);
 
 exports.Mode = Mode;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/c_cpp_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/doc_comment_highlight_rules','ace/mode/text_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/c_cpp_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/doc_comment_highlight_rules','ace/mode/text_highlight_rules'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -18710,7 +20449,7 @@ oop.inherits(c_cppHighlightRules, TextHighlightRules);
 
 exports.c_cppHighlightRules = c_cppHighlightRules;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/coffee'), ['ace/tokenizer','ace/mode/coffee_highlight_rules','ace/mode/matching_brace_outdent','ace/range','ace/mode/text','pilot/oop'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/coffee'), ['ace/tokenizer','ace/mode/coffee_highlight_rules','ace/mode/matching_brace_outdent','ace/range','ace/mode/text','pilot/oop'], function (require, exports, module) {
 
 
 var Tokenizer = require("ace/tokenizer").Tokenizer;
@@ -18773,7 +20512,7 @@ proto.autoOutdent = function(state, doc, row) {
 exports.Mode = CoffeeMode;
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/coffee_highlight_rules'), ['pilot/oop','ace/mode/text_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/coffee_highlight_rules'), ['pilot/oop','ace/mode/text_highlight_rules'], function (require, exports, module) {
 
 
 require("pilot/oop").inherits(
@@ -18919,7 +20658,7 @@ this.$rules =
 
 exports.CoffeeHighlightRules = CoffeeHighlightRules;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/perl'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/perl_highlight_rules','ace/mode/matching_brace_outdent','ace/range'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/perl'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/perl_highlight_rules','ace/mode/matching_brace_outdent','ace/range'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -18999,7 +20738,7 @@ oop.inherits(Mode, TextMode);
 
 exports.Mode = Mode;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/perl_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/text_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/perl_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/text_highlight_rules'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -19126,7 +20865,7 @@ oop.inherits(PerlHighlightRules, TextHighlightRules);
 
 exports.PerlHighlightRules = PerlHighlightRules;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/svg'), ['pilot/oop','ace/mode/text','ace/mode/javascript','ace/tokenizer','ace/mode/svg_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/svg'), ['pilot/oop','ace/mode/text','ace/mode/javascript','ace/tokenizer','ace/mode/svg_highlight_rules'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -19183,7 +20922,7 @@ oop.inherits(Mode, XmlMode);
 
 exports.Mode = Mode;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/svg_highlight_rules'), ['pilot/oop','ace/mode/javascript_highlight_rules','ace/mode/xml_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/svg_highlight_rules'), ['pilot/oop','ace/mode/javascript_highlight_rules','ace/mode/xml_highlight_rules'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -19234,7 +20973,7 @@ oop.inherits(SvgHighlightRules, XmlHighlightRules);
 
 exports.SvgHighlightRules = SvgHighlightRules;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/textile'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/textile_highlight_rules','ace/mode/matching_brace_outdent','ace/range'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/textile'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/textile_highlight_rules','ace/mode/matching_brace_outdent','ace/range'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -19274,7 +21013,7 @@ oop.inherits(Mode, TextMode);
 exports.Mode = Mode;
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/mode/textile_highlight_rules'), ['pilot/oop','ace/mode/text_highlight_rules'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/textile_highlight_rules'), ['pilot/oop','ace/mode/text_highlight_rules'], function (require, exports, module) {
 
 
 var oop = require("pilot/oop");
@@ -19348,7 +21087,7 @@ oop.inherits(TextileHighlightRules, TextHighlightRules);
 exports.TextileHighlightRules = TextileHighlightRules;
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/keyboard/keybinding/vim'), ['ace/keyboard/state_handler','ace/keyboard/state_handler'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/keyboard/keybinding/vim'), ['ace/keyboard/state_handler','ace/keyboard/state_handler'], function (require, exports, module) {
 
 
 var StateHandler = require("ace/keyboard/state_handler").StateHandler;
@@ -19424,7 +21163,7 @@ var vimStates = {
 exports.Vim = new StateHandler(vimStates);
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/keyboard/state_handler'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/keyboard/state_handler'), [], function (require, exports, module) {
 
 
 // If you're developing a new keymapping and want to get an idea what's going
@@ -19634,7 +21373,7 @@ exports.matchCharacterOnly = function(buffer, hashId, key, symbolicName) {
 
 exports.StateHandler = StateHandler;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/keyboard/keybinding/emacs'), ['ace/keyboard/state_handler','ace/keyboard/state_handler'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/keyboard/keybinding/emacs'), ['ace/keyboard/state_handler','ace/keyboard/state_handler'], function (require, exports, module) {
 
 
 var StateHandler = require("ace/keyboard/state_handler").StateHandler;
@@ -19747,7 +21486,7 @@ var emacsState = {
 exports.Emacs = new StateHandler(emacsState);
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/lib/ace/keyboard/hash_handler'), ['pilot/keys'], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/keyboard/hash_handler'), ['pilot/keys'], function (require, exports, module) {
 
 
 var keyUtil  = require("pilot/keys");
@@ -19826,7 +21565,7 @@ function HashHandler(config) {
 
 exports.HashHandler = HashHandler;
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/b339f0b799f23466a9fb3ac92af4cb7e572604a6@/package.json'), [], function() { return {"uid":"http://github.com/cadorn/ace-extjs/packages/ace-worker/","main":"worker.js","directories":{"lib":""},"mappings":{"ace":{"location":"" + bravojs.mainModuleDir + "/be838c6d9a6db05254ca57f11ea5029390a2997c"},"cockpit":{"location":"" + bravojs.mainModuleDir + "/539c1b401b1ed3c4feb4e16c715a1e9fd4289992"},"pilot":{"location":"" + bravojs.mainModuleDir + "/ebd88462734df1207a34b544b42917b1f1f52813"}}}; });
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/b339f0b799f23466a9fb3ac92af4cb7e572604a6@/package.json'), [], function() { return {"uid":"http://github.com/cadorn/ace-extjs/packages/ace-worker/","main":"worker.js","directories":{"lib":""},"mappings":{"ace":{"location":"" + bravojs.mainModuleDir + "/87749d9714f1925e26afa48a0d592eaa39403858"},"cockpit":{"location":"" + bravojs.mainModuleDir + "/b5bd9e5093176e86aa6f6c4d581342361d8c923f"},"pilot":{"location":"" + bravojs.mainModuleDir + "/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c"}}}; });
 (function() {
 var env = {};
 module.declare([{"_package-0":{"id":"a3d9ddf257e98144c883cd2dbc03ab62243dbc09"}}], function(require, exports, module) {

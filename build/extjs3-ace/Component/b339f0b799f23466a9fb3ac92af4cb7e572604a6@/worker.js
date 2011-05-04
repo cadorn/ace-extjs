@@ -4,8 +4,10 @@ bravojs.url = window.location.protocol + '//' + window.location.host + '/extjs3-
 } else if(typeof importScripts != 'undefined' && typeof bravojs.url == 'undefined') {
 bravojs.url = location;
 }
-bravojs.mainModuleDir = /^https?:\/(.*?)\.js$/.exec(bravojs.url)[1];
+bravojs.mainModuleDir = /^(https?|resource):\/(.*?)\.js$/.exec(bravojs.url)[2];
 bravojs.mainContext = bravojs.mainModuleDir + '/75facf7e3e2e534c307f54f259c3e920b1dc6965';
+bravojs.platform = 'browser';
+function dump() { (bravojs.dump || bravojs.print).apply(null, arguments); };
 
 // -- kriskowal Kris Kowal Copyright (C) 2009-2010 MIT License
 // -- tlrobinson Tom Robinson
@@ -963,22 +965,25 @@ bravojs.normalizeDependencyArray = function bravojs_normalizeDependencyArray(dep
 
   for (i=0; i < dependencies.length; i++)
   {
-    switch(typeof dependencies[i])
+    if (dependencies[i])
     {
-      case "object":
-        for (label in dependencies[i])
-        {
-          if (dependencies[i].hasOwnProperty(label))
-            addNormal(dependencies[i][label]);
-        }
-        break;
+      switch(typeof dependencies[i])
+      {
+        case "object":
+          for (label in dependencies[i])
+          {
+            if (dependencies[i].hasOwnProperty(label))
+              addNormal(dependencies[i][label]);
+          }
+          break;
 
-      case "string":
-        addNormal(dependencies[i]);
-        break;
+        case "string":
+          addNormal(dependencies[i]);
+          break;
 
-      default:
-        throw new Error("Invalid dependency array value at position " + (i+1));
+        default:
+          throw new Error("Invalid dependency array value at position " + (i+1));
+      }
     }
   }
 
@@ -1106,6 +1111,10 @@ bravojs.requireModule = function bravojs_requireModule(parentModuleDir, moduleId
       return bravojs.requireMemo[id];
     return bravojs.requireMemo[id] = exports;
   }
+
+  /* If id is false the module is not available */
+  if (id === false)
+    return null;
 
   if (!bravojs.requireMemo[id] && bravojs.pendingModuleDeclarations[id])
     bravojs.initializeModule(id);
@@ -1801,6 +1810,11 @@ Plugin.prototype.init = function()
 
         try {
             var ret = bravojs.callPlugins("normalizeModuleIdentifier", [moduleIdentifier, relativeModuleDir, descriptor, this]);
+            
+            // happens if mapping is ignored
+            if (ret === false)
+                return false;
+            
             if (typeof ret != "undefined")
                 moduleIdentifier = ret;
         }
@@ -1835,12 +1849,14 @@ Plugin.prototype.init = function()
         /* Only add extra module properties if context represents a package (i.e. not default '_' context) */
         if (context.id == "_")
             return;
-    
+
         /* If context supplies a UID use it over the path-based ID for the package ID */
         this.pkgId = context.id;
     
         /* Normalized mappings are simply a map where labels point to package IDs */
         this.mappings = context.getNormalizedMappings();
+
+        this.hashId = calcMD5(this.id);
     }
 
     // We need to reset bravojs to use the Context object from above (but keep registered plugins)
@@ -2057,6 +2073,8 @@ Plugin.prototype.normalizeModuleIdentifier = function(moduleIdentifier, relative
 
     function finalNormalization(moduleIdentifier)
     {
+        moduleIdentifier = moduleIdentifier.replace(/{platform}/g, bravojs.require.platform);
+
         var parts = moduleIdentifier.replace(/\.js$/, "").split("@/");
 
         if (parts.length == 1)
@@ -2190,6 +2208,9 @@ Plugin.prototype.normalizeModuleIdentifier = function(moduleIdentifier, relative
         var normalizedLocator = this.normalizeLocator(context.descriptor.mappings[parts[0]], context),
             mappedContextId;
 
+        if (normalizedLocator.available === false)
+            return false;
+
         if (typeof normalizedLocator.provider != "undefined")
             mappedContextId = normalizedLocator.id;
         else
@@ -2226,6 +2247,185 @@ if (typeof exports != "undefined")
     // On Server
     exports.Plugin = Plugin;
 }
+
+
+var calcMD5 = function() {
+/*
+ * A JavaScript implementation of the RSA Data Security, Inc. MD5 Message
+ * Digest Algorithm, as defined in RFC 1321.
+ * Copyright (C) Paul Johnston 1999 - 2000.
+ * Updated by Greg Holt 2000 - 2001.
+ * See http://pajhome.org.uk/site/legal.html for details.
+ */
+
+/*
+ * Convert a 32-bit number to a hex string with ls-byte first
+ */
+var hex_chr = "0123456789abcdef";
+function rhex(num)
+{
+  str = "";
+  for(j = 0; j <= 3; j++)
+    str += hex_chr.charAt((num >> (j * 8 + 4)) & 0x0F) +
+           hex_chr.charAt((num >> (j * 8)) & 0x0F);
+  return str;
+}
+
+/*
+ * Convert a string to a sequence of 16-word blocks, stored as an array.
+ * Append padding bits and the length, as described in the MD5 standard.
+ */
+function str2blks_MD5(str)
+{
+  nblk = ((str.length + 8) >> 6) + 1;
+  blks = new Array(nblk * 16);
+  for(i = 0; i < nblk * 16; i++) blks[i] = 0;
+  for(i = 0; i < str.length; i++)
+    blks[i >> 2] |= str.charCodeAt(i) << ((i % 4) * 8);
+  blks[i >> 2] |= 0x80 << ((i % 4) * 8);
+  blks[nblk * 16 - 2] = str.length * 8;
+  return blks;
+}
+
+/*
+ * Add integers, wrapping at 2^32. This uses 16-bit operations internally 
+ * to work around bugs in some JS interpreters.
+ */
+function add(x, y)
+{
+  var lsw = (x & 0xFFFF) + (y & 0xFFFF);
+  var msw = (x >> 16) + (y >> 16) + (lsw >> 16);
+  return (msw << 16) | (lsw & 0xFFFF);
+}
+
+/*
+ * Bitwise rotate a 32-bit number to the left
+ */
+function rol(num, cnt)
+{
+  return (num << cnt) | (num >>> (32 - cnt));
+}
+
+/*
+ * These functions implement the basic operation for each round of the
+ * algorithm.
+ */
+function cmn(q, a, b, x, s, t)
+{
+  return add(rol(add(add(a, q), add(x, t)), s), b);
+}
+function ff(a, b, c, d, x, s, t)
+{
+  return cmn((b & c) | ((~b) & d), a, b, x, s, t);
+}
+function gg(a, b, c, d, x, s, t)
+{
+  return cmn((b & d) | (c & (~d)), a, b, x, s, t);
+}
+function hh(a, b, c, d, x, s, t)
+{
+  return cmn(b ^ c ^ d, a, b, x, s, t);
+}
+function ii(a, b, c, d, x, s, t)
+{
+  return cmn(c ^ (b | (~d)), a, b, x, s, t);
+}
+
+/*
+ * Take a string and return the hex representation of its MD5.
+ */
+return function calcMD5(str)
+{
+  x = str2blks_MD5(str);
+  a =  1732584193;
+  b = -271733879;
+  c = -1732584194;
+  d =  271733878;
+
+  for(i = 0; i < x.length; i += 16)
+  {
+    olda = a;
+    oldb = b;
+    oldc = c;
+    oldd = d;
+
+    a = ff(a, b, c, d, x[i+ 0], 7 , -680876936);
+    d = ff(d, a, b, c, x[i+ 1], 12, -389564586);
+    c = ff(c, d, a, b, x[i+ 2], 17,  606105819);
+    b = ff(b, c, d, a, x[i+ 3], 22, -1044525330);
+    a = ff(a, b, c, d, x[i+ 4], 7 , -176418897);
+    d = ff(d, a, b, c, x[i+ 5], 12,  1200080426);
+    c = ff(c, d, a, b, x[i+ 6], 17, -1473231341);
+    b = ff(b, c, d, a, x[i+ 7], 22, -45705983);
+    a = ff(a, b, c, d, x[i+ 8], 7 ,  1770035416);
+    d = ff(d, a, b, c, x[i+ 9], 12, -1958414417);
+    c = ff(c, d, a, b, x[i+10], 17, -42063);
+    b = ff(b, c, d, a, x[i+11], 22, -1990404162);
+    a = ff(a, b, c, d, x[i+12], 7 ,  1804603682);
+    d = ff(d, a, b, c, x[i+13], 12, -40341101);
+    c = ff(c, d, a, b, x[i+14], 17, -1502002290);
+    b = ff(b, c, d, a, x[i+15], 22,  1236535329);    
+
+    a = gg(a, b, c, d, x[i+ 1], 5 , -165796510);
+    d = gg(d, a, b, c, x[i+ 6], 9 , -1069501632);
+    c = gg(c, d, a, b, x[i+11], 14,  643717713);
+    b = gg(b, c, d, a, x[i+ 0], 20, -373897302);
+    a = gg(a, b, c, d, x[i+ 5], 5 , -701558691);
+    d = gg(d, a, b, c, x[i+10], 9 ,  38016083);
+    c = gg(c, d, a, b, x[i+15], 14, -660478335);
+    b = gg(b, c, d, a, x[i+ 4], 20, -405537848);
+    a = gg(a, b, c, d, x[i+ 9], 5 ,  568446438);
+    d = gg(d, a, b, c, x[i+14], 9 , -1019803690);
+    c = gg(c, d, a, b, x[i+ 3], 14, -187363961);
+    b = gg(b, c, d, a, x[i+ 8], 20,  1163531501);
+    a = gg(a, b, c, d, x[i+13], 5 , -1444681467);
+    d = gg(d, a, b, c, x[i+ 2], 9 , -51403784);
+    c = gg(c, d, a, b, x[i+ 7], 14,  1735328473);
+    b = gg(b, c, d, a, x[i+12], 20, -1926607734);
+    
+    a = hh(a, b, c, d, x[i+ 5], 4 , -378558);
+    d = hh(d, a, b, c, x[i+ 8], 11, -2022574463);
+    c = hh(c, d, a, b, x[i+11], 16,  1839030562);
+    b = hh(b, c, d, a, x[i+14], 23, -35309556);
+    a = hh(a, b, c, d, x[i+ 1], 4 , -1530992060);
+    d = hh(d, a, b, c, x[i+ 4], 11,  1272893353);
+    c = hh(c, d, a, b, x[i+ 7], 16, -155497632);
+    b = hh(b, c, d, a, x[i+10], 23, -1094730640);
+    a = hh(a, b, c, d, x[i+13], 4 ,  681279174);
+    d = hh(d, a, b, c, x[i+ 0], 11, -358537222);
+    c = hh(c, d, a, b, x[i+ 3], 16, -722521979);
+    b = hh(b, c, d, a, x[i+ 6], 23,  76029189);
+    a = hh(a, b, c, d, x[i+ 9], 4 , -640364487);
+    d = hh(d, a, b, c, x[i+12], 11, -421815835);
+    c = hh(c, d, a, b, x[i+15], 16,  530742520);
+    b = hh(b, c, d, a, x[i+ 2], 23, -995338651);
+
+    a = ii(a, b, c, d, x[i+ 0], 6 , -198630844);
+    d = ii(d, a, b, c, x[i+ 7], 10,  1126891415);
+    c = ii(c, d, a, b, x[i+14], 15, -1416354905);
+    b = ii(b, c, d, a, x[i+ 5], 21, -57434055);
+    a = ii(a, b, c, d, x[i+12], 6 ,  1700485571);
+    d = ii(d, a, b, c, x[i+ 3], 10, -1894986606);
+    c = ii(c, d, a, b, x[i+10], 15, -1051523);
+    b = ii(b, c, d, a, x[i+ 1], 21, -2054922799);
+    a = ii(a, b, c, d, x[i+ 8], 6 ,  1873313359);
+    d = ii(d, a, b, c, x[i+15], 10, -30611744);
+    c = ii(c, d, a, b, x[i+ 6], 15, -1560198380);
+    b = ii(b, c, d, a, x[i+13], 21,  1309151649);
+    a = ii(a, b, c, d, x[i+ 4], 6 , -145523070);
+    d = ii(d, a, b, c, x[i+11], 10, -1120210379);
+    c = ii(c, d, a, b, x[i+ 2], 15,  718787259);
+    b = ii(b, c, d, a, x[i+ 9], 21, -343485551);
+
+    a = add(a, olda);
+    b = add(b, oldb);
+    c = add(c, oldc);
+    d = add(d, oldd);
+  }
+  return rhex(a) + rhex(b) + rhex(c) + rhex(d);
+}
+
+}();
 
 })();
 
@@ -2367,7 +2567,7 @@ bravojs.module.constructor.prototype.load = function packages_loader_load(module
 
 })();
 
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/75facf7e3e2e534c307f54f259c3e920b1dc6965@/package.json'), [], function() { return {"uid":"http://github.com/cadorn/ace-extjs/packages/extjs3-ace/","name":"extjs3-ace","main":"lib/component.js","contexts":{"top":{"/lib/component":{"load":{"github.com/cadorn/ace-extjs/packages/extjs-ace/":{"parent":"github.com/cadorn/ace-extjs/packages/extjs3-ace/","load":{"github.com/cadorn/ace-extjs/packages/ace-editor/":{"parent":"github.com/cadorn/ace-extjs/packages/extjs-ace/@/","include":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"load":{"github.com/ajaxorg/ace/":{"parent":"github.com/cadorn/ace-extjs/packages/ace-editor/@/main","include":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"load":{"github.com/ajaxorg/ace/@/lib/ace/mode/*":{"parent":"github.com/ajaxorg/ace/@/","parents":{"github.com/ajaxorg/ace/@/":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/ace-editor/@/main":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/extjs-ace/@/":[],"github.com/cadorn/ace-extjs/packages/extjs3-ace/":[]}},"github.com/ajaxorg/ace/@/lib/ace/theme/*":{"parent":"github.com/ajaxorg/ace/@/","parents":{"github.com/ajaxorg/ace/@/":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/ace-editor/@/main":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/extjs-ace/@/":[],"github.com/cadorn/ace-extjs/packages/extjs3-ace/":[]}}},"id":"github.com/ajaxorg/ace/@/","ignore":true,"parents":{"github.com/cadorn/ace-extjs/packages/ace-editor/@/main":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/extjs-ace/@/":[],"github.com/cadorn/ace-extjs/packages/extjs3-ace/":[]}}},"id":"github.com/cadorn/ace-extjs/packages/ace-editor/@/main","parents":{"github.com/cadorn/ace-extjs/packages/extjs-ace/@/":[],"github.com/cadorn/ace-extjs/packages/extjs3-ace/":[]}}},"id":"github.com/cadorn/ace-extjs/packages/extjs-ace/@/","ignore":true,"parents":{"github.com/cadorn/ace-extjs/packages/extjs3-ace/":[]}}},"id":"github.com/cadorn/ace-extjs/packages/extjs3-ace/@/lib/component","parents":{}}}},"mappings":{"extjs-ace":{"location":"" + bravojs.mainModuleDir + "/aae9e0c4eed45f3c888f8e7824a96a83f5f8f861"},"ace":{"location":"" + bravojs.mainModuleDir + "/be838c6d9a6db05254ca57f11ea5029390a2997c"},"cockpit":{"location":"" + bravojs.mainModuleDir + "/539c1b401b1ed3c4feb4e16c715a1e9fd4289992"},"pilot":{"location":"" + bravojs.mainModuleDir + "/ebd88462734df1207a34b544b42917b1f1f52813"}}}; });
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/75facf7e3e2e534c307f54f259c3e920b1dc6965@/package.json'), [], function() { return {"uid":"http://github.com/cadorn/ace-extjs/packages/extjs3-ace/","name":"extjs3-ace","main":"lib/component.js","contexts":{"top":{"/lib/component":{"include":{"github.com/cadorn/ace-extjs/packages/extjs-ace/":{}}}}},"mappings":{"extjs-ace":{"location":"" + bravojs.mainModuleDir + "/aae9e0c4eed45f3c888f8e7824a96a83f5f8f861"},"ace":{"location":"" + bravojs.mainModuleDir + "/87749d9714f1925e26afa48a0d592eaa39403858"},"cockpit":{"location":"" + bravojs.mainModuleDir + "/b5bd9e5093176e86aa6f6c4d581342361d8c923f"},"pilot":{"location":"" + bravojs.mainModuleDir + "/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c"}}}; });
 require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/75facf7e3e2e534c307f54f259c3e920b1dc6965@/lib/component'), ['extjs-ace/component'], function (require, exports, module)
 {
     var COMPONENT = require("extjs-ace/component");
@@ -2381,7 +2581,7 @@ require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/75facf7e3e2e534c307f5
         Ext.ux.AceEditor = Ext.extend(Ext.BoxComponent, component);
     }
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/aae9e0c4eed45f3c888f8e7824a96a83f5f8f861@/package.json'), [], function() { return {"uid":"http://github.com/cadorn/ace-extjs/packages/extjs-ace/","name":"extjs-ace","main":"","contexts":{"top":{"/":{"load":{"github.com/cadorn/ace-extjs/packages/ace-editor/":{"parent":"github.com/cadorn/ace-extjs/packages/extjs-ace/@/","include":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"load":{"github.com/ajaxorg/ace/":{"parent":"github.com/cadorn/ace-extjs/packages/ace-editor/@/main","include":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"load":{"github.com/ajaxorg/ace/@/lib/ace/mode/*":{"parent":"github.com/ajaxorg/ace/@/","parents":{"github.com/ajaxorg/ace/@/":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/ace-editor/@/main":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/extjs-ace/@/":[],"github.com/cadorn/ace-extjs/packages/extjs3-ace/":[]}},"github.com/ajaxorg/ace/@/lib/ace/theme/*":{"parent":"github.com/ajaxorg/ace/@/","parents":{"github.com/ajaxorg/ace/@/":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/ace-editor/@/main":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/extjs-ace/@/":[],"github.com/cadorn/ace-extjs/packages/extjs3-ace/":[]}}},"id":"github.com/ajaxorg/ace/@/","ignore":true,"parents":{"github.com/cadorn/ace-extjs/packages/ace-editor/@/main":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/extjs-ace/@/":[],"github.com/cadorn/ace-extjs/packages/extjs3-ace/":[]}}},"id":"github.com/cadorn/ace-extjs/packages/ace-editor/@/main","parents":{"github.com/cadorn/ace-extjs/packages/extjs-ace/@/":[],"github.com/cadorn/ace-extjs/packages/extjs3-ace/":[]}}},"id":"github.com/cadorn/ace-extjs/packages/extjs-ace/@/","ignore":true,"parent":"github.com/cadorn/ace-extjs/packages/extjs3-ace/@/lib/component"}}},"mappings":{"editor":{"location":"" + bravojs.mainModuleDir + "/a3d9ddf257e98144c883cd2dbc03ab62243dbc09"},"ace":{"location":"" + bravojs.mainModuleDir + "/be838c6d9a6db05254ca57f11ea5029390a2997c"},"cockpit":{"location":"" + bravojs.mainModuleDir + "/539c1b401b1ed3c4feb4e16c715a1e9fd4289992"},"pilot":{"location":"" + bravojs.mainModuleDir + "/ebd88462734df1207a34b544b42917b1f1f52813"}}}; });
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/aae9e0c4eed45f3c888f8e7824a96a83f5f8f861@/package.json'), [], function() { return {"uid":"http://github.com/cadorn/ace-extjs/packages/extjs-ace/","name":"extjs-ace","main":"","contexts":{"top":{"/":{"load":{"github.com/cadorn/ace-extjs/packages/ace-editor/":{}}}}},"mappings":{"editor":{"location":"" + bravojs.mainModuleDir + "/a3d9ddf257e98144c883cd2dbc03ab62243dbc09"},"ace":{"location":"" + bravojs.mainModuleDir + "/87749d9714f1925e26afa48a0d592eaa39403858"},"cockpit":{"location":"" + bravojs.mainModuleDir + "/b5bd9e5093176e86aa6f6c4d581342361d8c923f"},"pilot":{"location":"" + bravojs.mainModuleDir + "/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c"}}}; });
 require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/aae9e0c4eed45f3c888f8e7824a96a83f5f8f861@/lib/component'), ['pilot/dom','text!./component.css'], function (require, exports, module)
 {
     var DOM = require("pilot/dom");
@@ -2669,8 +2869,8 @@ require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/aae9e0c4eed45f3c888f8
         };
     }
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/package.json'), [], function() { return {"name":"pilot","description":"Pilot is a small library used in the creation of Ace editor.","version":"0.1.1","homepage":"http://github.com/ajaxorg/pilot","engines":{"node":">= 0.1.102","teleport":">=0.2.0"},"author":"Fabian Jakobs <fabian@ajax.org>","main":"lib/pilot/index.js","repository":{"type":"git","url":"http://github.com/ajaxorg/ace.git"},"overlay":{"teleport":{"directories":{"lib":"lib/pilot"}}},"licenses":[{"type":"LGPLv3","url":"http://www.gnu.org/licenses/lgpl-3.0.txt"}],"uid":"https://github.com/ajaxorg/pilot/","directories":{"lib":"lib/pilot"},"mappings":{"pilot":{"location":"" + bravojs.mainModuleDir + "/ebd88462734df1207a34b544b42917b1f1f52813"}}}; });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/dom'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/package.json'), [], function() { return {"name":"pilot","description":"Pilot is a small library used in the creation of Ace editor.","version":"0.1.1","homepage":"http://github.com/ajaxorg/pilot","engines":{"node":">= 0.1.102","teleport":">=0.2.0"},"author":"Fabian Jakobs <fabian@ajax.org>","main":"lib/pilot/index.js","repository":{"type":"git","url":"http://github.com/ajaxorg/ace.git"},"overlay":{"teleport":{"directories":{"lib":"lib/pilot"}}},"licenses":[{"type":"LGPLv3","url":"http://www.gnu.org/licenses/lgpl-3.0.txt"}],"uid":"https://github.com/ajaxorg/pilot/","directories":{"lib":"lib/pilot"},"mappings":{"pilot":{"location":"" + bravojs.mainModuleDir + "/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c"}}}; });
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/dom'), [], function (require, exports, module) {
 
 
 var XHTML_NS = "http://www.w3.org/1999/xhtml";
@@ -2925,7 +3125,7 @@ exports.setSelectionEnd = function(textarea, end) {
 require.memoize('text!'+bravojs.realpath(bravojs.mainModuleDir + '/aae9e0c4eed45f3c888f8e7824a96a83f5f8f861@/lib/component.css'), [], function () {
 return ["",".x-ux-ace-editor-panel {","    border-style: solid;","    border-width: 0;","    border-color: #99bbe8;","    background-color: #ffffff;","}",""].join("\n");
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/b339f0b799f23466a9fb3ac92af4cb7e572604a6@/package.json'), [], function() { return {"uid":"http://github.com/cadorn/ace-extjs/packages/ace-worker/","main":"worker.js","directories":{"lib":""},"mappings":{"ace":{"location":"" + bravojs.mainModuleDir + "/be838c6d9a6db05254ca57f11ea5029390a2997c"},"cockpit":{"location":"" + bravojs.mainModuleDir + "/539c1b401b1ed3c4feb4e16c715a1e9fd4289992"},"pilot":{"location":"" + bravojs.mainModuleDir + "/ebd88462734df1207a34b544b42917b1f1f52813"}}}; });
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/b339f0b799f23466a9fb3ac92af4cb7e572604a6@/package.json'), [], function() { return {"uid":"http://github.com/cadorn/ace-extjs/packages/ace-worker/","main":"worker.js","directories":{"lib":""},"mappings":{"ace":{"location":"" + bravojs.mainModuleDir + "/87749d9714f1925e26afa48a0d592eaa39403858"},"cockpit":{"location":"" + bravojs.mainModuleDir + "/b5bd9e5093176e86aa6f6c4d581342361d8c923f"},"pilot":{"location":"" + bravojs.mainModuleDir + "/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c"}}}; });
 require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/b339f0b799f23466a9fb3ac92af4cb7e572604a6@/worker'), ['pilot/event_emitter','pilot/oop','pilot/fixoldbrowsers'], function (require, exports, module)
 {
     exports.main = function()
@@ -2993,7 +3193,7 @@ require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/b339f0b799f23466a9fb3
         };
     }
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/event_emitter'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/event_emitter'), [], function (require, exports, module) {
 
 
 var EventEmitter = {};
@@ -3047,7 +3247,7 @@ EventEmitter.removeAllListeners = function(eventName) {
 exports.EventEmitter = EventEmitter;
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/oop'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/oop'), [], function (require, exports, module) {
 
 
 exports.inherits = (function() {
@@ -3071,8 +3271,20 @@ exports.implement = function(proto, mixin) {
 };
 
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b544b42917b1f1f52813@/lib/pilot/fixoldbrowsers'), [], function (require, exports, module) {
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c@/lib/pilot/fixoldbrowsers'), [], function (require, exports, module) {
+// vim:set ts=4 sts=4 sw=4 st:
+// -- kriskowal Kris Kowal Copyright (C) 2009-2010 MIT License
+// -- tlrobinson Tom Robinson Copyright (C) 2009-2010 MIT License (Narwhal Project)
+// -- dantman Daniel Friesen Copyright(C) 2010 XXX No License Specified
+// -- fschaefer Florian Schäfer Copyright (C) 2010 MIT License
+// -- Irakli Gozalishvili Copyright (C) 2010 MIT License
 
+/*!
+    Copyright (c) 2009, 280 North Inc. http://280north.com/
+    MIT License. http://github.com/280north/narwhal/blob/master/README.md
+*/
+
+(typeof define === "function" ? define : function($) { $(); })(function(require, exports, module, undefined) {
 
 /**
  * Brings an environment as close to ECMAScript 5 compliance
@@ -3091,30 +3303,158 @@ require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/ebd88462734df1207a34b
  * numbered specification references and quotes herein were taken.  Updating
  * these references and quotes to reflect the new document would be a welcome
  * volunteer project.
- * 
+ *
  * @module
  */
 
 /*whatsupdoc*/
 
-// this is often accessed, so avoid multiple dereference costs universally
-var has = Object.prototype.hasOwnProperty;
+//
+// Function
+// ========
+//
+
+// ES-5 15.3.4.5
+// http://www.ecma-international.org/publications/files/drafts/tc39-2009-025.pdf
+
+if (!Function.prototype.bind) {
+    var slice = Array.prototype.slice;
+    Function.prototype.bind = function bind(that) { // .length is 1
+        // 1. Let Target be the this value.
+        var target = this;
+        // 2. If IsCallable(Target) is false, throw a TypeError exception.
+        // XXX this gets pretty close, for all intents and purposes, letting
+        // some duck-types slide
+        if (typeof target.apply !== "function" || typeof target.call !== "function")
+            return new TypeError();
+        // 3. Let A be a new (possibly empty) internal list of all of the
+        //   argument values provided after thisArg (arg1, arg2 etc), in order.
+        var args = slice.call(arguments);
+        // 4. Let F be a new native ECMAScript object.
+        // 9. Set the [[Prototype]] internal property of F to the standard
+        //   built-in Function prototype object as specified in 15.3.3.1.
+        // 10. Set the [[Call]] internal property of F as described in
+        //   15.3.4.5.1.
+        // 11. Set the [[Construct]] internal property of F as described in
+        //   15.3.4.5.2.
+        // 12. Set the [[HasInstance]] internal property of F as described in
+        //   15.3.4.5.3.
+        // 13. The [[Scope]] internal property of F is unused and need not
+        //   exist.
+        var bound = function bound() {
+
+            if (this instanceof bound) {
+                // 15.3.4.5.2 [[Construct]]
+                // When the [[Construct]] internal method of a function object,
+                // F that was created using the bind function is called with a
+                // list of arguments ExtraArgs the following steps are taken:
+                // 1. Let target be the value of F's [[TargetFunction]]
+                //   internal property.
+                // 2. If target has no [[Construct]] internal method, a
+                //   TypeError exception is thrown.
+                // 3. Let boundArgs be the value of F's [[BoundArgs]] internal
+                //   property.
+                // 4. Let args be a new list containing the same values as the
+                //   list boundArgs in the same order followed by the same
+                //   values as the list ExtraArgs in the same order.
+
+                var self = Object.create(target.prototype);
+                target.apply(self, args.concat(slice.call(arguments)));
+                return self;
+
+            } else {
+                // 15.3.4.5.1 [[Call]]
+                // When the [[Call]] internal method of a function object, F,
+                // which was created using the bind function is called with a
+                // this value and a list of arguments ExtraArgs the following
+                // steps are taken:
+                // 1. Let boundArgs be the value of F's [[BoundArgs]] internal
+                //   property.
+                // 2. Let boundThis be the value of F's [[BoundThis]] internal
+                //   property.
+                // 3. Let target be the value of F's [[TargetFunction]] internal
+                //   property.
+                // 4. Let args be a new list containing the same values as the list
+                //   boundArgs in the same order followed by the same values as
+                //   the list ExtraArgs in the same order. 5.  Return the
+                //   result of calling the [[Call]] internal method of target
+                //   providing boundThis as the this value and providing args
+                //   as the arguments.
+
+                // equiv: target.call(this, ...boundArgs, ...args)
+                return target.call.apply(
+                    target,
+                    args.concat(slice.call(arguments))
+                );
+
+            }
+
+        };
+        bound.length = (
+            // 14. If the [[Class]] internal property of Target is "Function", then
+            typeof target === "function" ?
+            // a. Let L be the length property of Target minus the length of A.
+            // b. Set the length own property of F to either 0 or L, whichever is larger.
+            Math.max(target.length - args.length, 0) :
+            // 15. Else set the length own property of F to 0.
+            0
+        )
+        // 16. The length own property of F is given attributes as specified in
+        //   15.3.5.1.
+        // TODO
+        // 17. Set the [[Extensible]] internal property of F to true.
+        // TODO
+        // 18. Call the [[DefineOwnProperty]] internal method of F with
+        //   arguments "caller", PropertyDescriptor {[[Value]]: null,
+        //   [[Writable]]: false, [[Enumerable]]: false, [[Configurable]]:
+        //   false}, and false.
+        // TODO
+        // 19. Call the [[DefineOwnProperty]] internal method of F with
+        //   arguments "arguments", PropertyDescriptor {[[Value]]: null,
+        //   [[Writable]]: false, [[Enumerable]]: false, [[Configurable]]:
+        //   false}, and false.
+        // TODO
+        // NOTE Function objects created using Function.prototype.bind do not
+        // have a prototype property.
+        // XXX can't delete it in pure-js.
+        return bound;
+    };
+}
+
+// Shortcut to an often accessed properties, in order to avoid multiple
+// dereference that costs universally.
+// _Please note: Shortcuts are defined after `Function.prototype.bind` as we
+// us it in defining shortcuts.
+var call = Function.prototype.call;
+var prototypeOfArray = Array.prototype;
+var prototypeOfObject = Object.prototype;
+var owns = call.bind(prototypeOfObject.hasOwnProperty);
+
+var defineGetter, defineSetter, lookupGetter, lookupSetter, supportsAccessors;
+// If JS engine supports accessors creating shortcuts.
+if ((supportsAccessors = owns(prototypeOfObject, '__defineGetter__'))) {
+    defineGetter = call.bind(prototypeOfObject.__defineGetter__);
+    defineSetter = call.bind(prototypeOfObject.__defineSetter__);
+    lookupGetter = call.bind(prototypeOfObject.__lookupGetter__);
+    lookupSetter = call.bind(prototypeOfObject.__lookupSetter__);
+}
+
 
 //
 // Array
 // =====
 //
 
-// ES5 15.4.3.2 
+// ES5 15.4.3.2
 if (!Array.isArray) {
-    Array.isArray = function(obj) {
-        return Object.prototype.toString.call(obj) == "[object Array]";
+    Array.isArray = function isArray(obj) {
+        return Object.prototype.toString.call(obj) === "[object Array]";
     };
 }
 
 // ES5 15.4.4.18
 if (!Array.prototype.forEach) {
-    Array.prototype.forEach =  function(block, thisObject) {
+    Array.prototype.forEach =  function forEach(block, thisObject) {
         var len = +this.length;
         for (var i = 0; i < len; i++) {
             if (i in this) {
@@ -3127,9 +3467,9 @@ if (!Array.prototype.forEach) {
 // ES5 15.4.4.19
 // https://developer.mozilla.org/en/Core_JavaScript_1.5_Reference/Objects/Array/map
 if (!Array.prototype.map) {
-    Array.prototype.map = function(fun /*, thisp*/) {
+    Array.prototype.map = function map(fun /*, thisp*/) {
         var len = +this.length;
-        if (typeof fun != "function")
+        if (typeof fun !== "function")
           throw new TypeError();
 
         var res = new Array(len);
@@ -3145,7 +3485,7 @@ if (!Array.prototype.map) {
 
 // ES5 15.4.4.20
 if (!Array.prototype.filter) {
-    Array.prototype.filter = function (block /*, thisp */) {
+    Array.prototype.filter = function filter(block /*, thisp */) {
         var values = [];
         var thisp = arguments[1];
         for (var i = 0; i < this.length; i++)
@@ -3157,7 +3497,7 @@ if (!Array.prototype.filter) {
 
 // ES5 15.4.4.16
 if (!Array.prototype.every) {
-    Array.prototype.every = function (block /*, thisp */) {
+    Array.prototype.every = function every(block /*, thisp */) {
         var thisp = arguments[1];
         for (var i = 0; i < this.length; i++)
             if (!block.call(thisp, this[i]))
@@ -3168,7 +3508,7 @@ if (!Array.prototype.every) {
 
 // ES5 15.4.4.17
 if (!Array.prototype.some) {
-    Array.prototype.some = function (block /*, thisp */) {
+    Array.prototype.some = function some(block /*, thisp */) {
         var thisp = arguments[1];
         for (var i = 0; i < this.length; i++)
             if (block.call(thisp, this[i]))
@@ -3180,13 +3520,13 @@ if (!Array.prototype.some) {
 // ES5 15.4.4.21
 // https://developer.mozilla.org/en/Core_JavaScript_1.5_Reference/Objects/Array/reduce
 if (!Array.prototype.reduce) {
-    Array.prototype.reduce = function(fun /*, initial*/) {
+    Array.prototype.reduce = function reduce(fun /*, initial*/) {
         var len = +this.length;
-        if (typeof fun != "function")
+        if (typeof fun !== "function")
             throw new TypeError();
 
         // no value to return if no initial value and an empty array
-        if (len == 0 && arguments.length == 1)
+        if (len === 0 && arguments.length === 1)
             throw new TypeError();
 
         var i = 0;
@@ -3217,13 +3557,13 @@ if (!Array.prototype.reduce) {
 // ES5 15.4.4.22
 // https://developer.mozilla.org/en/Core_JavaScript_1.5_Reference/Objects/Array/reduceRight
 if (!Array.prototype.reduceRight) {
-    Array.prototype.reduceRight = function(fun /*, initial*/) {
+    Array.prototype.reduceRight = function reduceRight(fun /*, initial*/) {
         var len = +this.length;
-        if (typeof fun != "function")
+        if (typeof fun !== "function")
             throw new TypeError();
 
         // no value to return if no initial value, empty array
-        if (len == 0 && arguments.length == 1)
+        if (len === 0 && arguments.length === 1)
             throw new TypeError();
 
         var i = len - 1;
@@ -3253,7 +3593,7 @@ if (!Array.prototype.reduceRight) {
 
 // ES5 15.4.4.14
 if (!Array.prototype.indexOf) {
-    Array.prototype.indexOf = function (value /*, fromIndex */ ) {
+    Array.prototype.indexOf = function indexOf(value /*, fromIndex */ ) {
         var length = this.length;
         if (!length)
             return -1;
@@ -3263,7 +3603,7 @@ if (!Array.prototype.indexOf) {
         if (i < 0)
             i += length;
         for (; i < length; i++) {
-            if (!has.call(this, i))
+            if (!owns(this, i))
                 continue;
             if (value === this[i])
                 return i;
@@ -3274,7 +3614,7 @@ if (!Array.prototype.indexOf) {
 
 // ES5 15.4.4.15
 if (!Array.prototype.lastIndexOf) {
-    Array.prototype.lastIndexOf = function (value /*, fromIndex */) {
+    Array.prototype.lastIndexOf = function lastIndexOf(value /*, fromIndex */) {
         var length = this.length;
         if (!length)
             return -1;
@@ -3283,7 +3623,7 @@ if (!Array.prototype.lastIndexOf) {
             i += length;
         i = Math.min(i, length - 1);
         for (; i >= 0; i--) {
-            if (!has.call(this, i))
+            if (!owns(this, i))
                 continue;
             if (value === this[i])
                 return i;
@@ -3295,14 +3635,14 @@ if (!Array.prototype.lastIndexOf) {
 //
 // Object
 // ======
-// 
+//
 
 // ES5 15.2.3.2
 if (!Object.getPrototypeOf) {
     // https://github.com/kriskowal/es5-shim/issues#issue/2
     // http://ejohn.org/blog/objectgetprototypeof/
     // recommended by fschaefer on github
-    Object.getPrototypeOf = function (object) {
+    Object.getPrototypeOf = function getPrototypeOf(object) {
         return object.__proto__ || object.constructor.prototype;
         // or undefined if not available in this engine
     };
@@ -3310,38 +3650,79 @@ if (!Object.getPrototypeOf) {
 
 // ES5 15.2.3.3
 if (!Object.getOwnPropertyDescriptor) {
-    Object.getOwnPropertyDescriptor = function (object, property) {
-        if (typeof object !== "object" && typeof object !== "function" || object === null)
-            throw new TypeError("Object.getOwnPropertyDescriptor called on a non-object");
+    var ERR_NON_OBJECT = "Object.getOwnPropertyDescriptor called on a " +
+                         "non-object: ";
+    Object.getOwnPropertyDescriptor = function getOwnPropertyDescriptor(object, property) {
+        if ((typeof object !== "object" && typeof object !== "function") || object === null)
+            throw new TypeError(ERR_NON_OBJECT + object);
+        // If object does not owns property return undefined immediately.
+        if (!owns(object, property))
+            return undefined;
 
-        return has.call(object, property) ? {
-            value: object[property],
-            enumerable: true,
-            configurable: true,
-            writeable: true
-        } : undefined;
+        var despriptor, getter, setter;
+
+        // If object has a property then it's for sure both `enumerable` and
+        // `configurable`.
+        despriptor =  { enumerable: true, configurable: true };
+
+        // If JS engine supports accessor properties then property may be a
+        // getter or setter.
+        if (supportsAccessors) {
+            // Unfortunately `__lookupGetter__` will return a getter even
+            // if object has own non getter property along with a same named
+            // inherited getter. To avoid misbehavior we temporary remove
+            // `__proto__` so that `__lookupGetter__` will return getter only
+            // if it's owned by an object.
+            var prototype = object.__proto__;
+            object.__proto__ = prototypeOfObject;
+
+            var getter = lookupGetter(object, property);
+            var setter = lookupSetter(object, property);
+
+            // Once we have getter and setter we can put values back.
+            object.__proto__ = prototype;
+
+            if (getter || setter) {
+                if (getter) descriptor.get = getter;
+                if (setter) descriptor.set = setter;
+
+                // If it was accessor property we're done and return here
+                // in order to avoid adding `value` to the descriptor.
+                return descriptor;
+            }
+        }
+
+        // If we got this far we know that object has an own property that is
+        // not an accessor so we set it as a value and return descriptor.
+        descriptor.value = object[property];
+        return descriptor;
     };
 }
 
 // ES5 15.2.3.4
 if (!Object.getOwnPropertyNames) {
-    Object.getOwnPropertyNames = function (object) {
+    Object.getOwnPropertyNames = function getOwnPropertyNames(object) {
         return Object.keys(object);
     };
 }
 
-// ES5 15.2.3.5 
+// ES5 15.2.3.5
 if (!Object.create) {
-    Object.create = function(prototype, properties) {
+    Object.create = function create(prototype, properties) {
         var object;
         if (prototype === null) {
-            object = {"__proto__": null};
+            object = { "__proto__": null };
         } else {
-            if (typeof prototype != "object")
+            if (typeof prototype !== "object")
                 throw new TypeError("typeof prototype["+(typeof prototype)+"] != 'object'");
             var Type = function () {};
             Type.prototype = prototype;
             object = new Type();
+            // IE has no built-in implementation of `Object.getPrototypeOf`
+            // neither `__proto__`, but this manually setting `__proto__` will
+            // guarantee that `Object.getPrototypeOf` will work as expected with
+            // objects created using `Object.create`
+            object.__proto__ = prototype;
         }
         if (typeof properties !== "undefined")
             Object.defineProperties(object, properties);
@@ -3351,44 +3732,71 @@ if (!Object.create) {
 
 // ES5 15.2.3.6
 if (!Object.defineProperty) {
-    Object.defineProperty = function(object, property, descriptor) {
-        if (typeof descriptor == "object" && object.__defineGetter__) {
-            if (has.call(descriptor, "value")) {
-                if (!object.__lookupGetter__(property) && !object.__lookupSetter__(property))
-                    // data property defined and no pre-existing accessors
-                    object[property] = descriptor.value;
-                if (has.call(descriptor, "get") || has.call(descriptor, "set"))
-                    // descriptor has a value property but accessor already exists
-                    throw new TypeError("Object doesn't support this action");
-            }
+    var ERR_NON_OBJECT_DESCRIPTOR = "Property description must be an object: ";
+    var ERR_NON_OBJECT_TARGET = "Object.defineProperty called on non-object: "
+    var ERR_ACCESSORS_NOT_SUPPORTED = "getters & setters can not be defined " +
+                                      "on this javascript engine";
+
+    Object.defineProperty = function defineProperty(object, property, descriptor) {
+        if (typeof object !== "object" && typeof object !== "function")
+            throw new TypeError(ERR_NON_OBJECT_TARGET + object);
+        if (typeof object !== "object" || object === null)
+            throw new TypeError(ERR_NON_OBJECT_DESCRIPTOR + descriptor);
+
+        // If it's a data property.
+        if (owns(descriptor, "value")) {
             // fail silently if "writable", "enumerable", or "configurable"
             // are requested but not supported
             /*
             // alternate approach:
             if ( // can't implement these features; allow false but not true
-                !(has.call(descriptor, "writable") ? descriptor.writable : true) ||
-                !(has.call(descriptor, "enumerable") ? descriptor.enumerable : true) ||
-                !(has.call(descriptor, "configurable") ? descriptor.configurable : true)
+                !(owns(descriptor, "writable") ? descriptor.writable : true) ||
+                !(owns(descriptor, "enumerable") ? descriptor.enumerable : true) ||
+                !(owns(descriptor, "configurable") ? descriptor.configurable : true)
             )
                 throw new RangeError(
                     "This implementation of Object.defineProperty does not " +
                     "support configurable, enumerable, or writable."
                 );
             */
-            else if (typeof descriptor.get == "function")
-                object.__defineGetter__(property, descriptor.get);
-            if (typeof descriptor.set == "function")
-                object.__defineSetter__(property, descriptor.set);
+
+            if (supportsAccessors && (lookupGetter(object, property) ||
+                                      lookupSetter(object, property)))
+            {
+                // As accessors are supported only on engines implementing
+                // `__proto__` we can safely override `__proto__` while defining
+                // a property to make sure that we don't hit an inherited
+                // accessor.
+                var prototype = object.__proto__;
+                object.__proto__ = prototypeOfObject;
+                // Deleting a property anyway since getter / setter may be
+                // defined on object itself.
+                delete object[property];
+                object[property] = descriptor.value;
+                // Setting original `__proto__` back now.
+                object.prototype;
+            } else {
+                object[property] = descriptor.value;
+            }
+        } else {
+            if (!supportsAccessors)
+                throw new TypeError(ERR_ACCESSORS_NOT_SUPPORTED);
+            // If we got that far then getters and setters can be defined !!
+            if (owns(descriptor, "get"))
+                defineGetter(object, property, descriptor.get);
+            if (owns(descriptor, "set"))
+                defineSetter(object, property, descriptor.set);
         }
+
         return object;
     };
 }
 
 // ES5 15.2.3.7
 if (!Object.defineProperties) {
-    Object.defineProperties = function(object, properties) {
+    Object.defineProperties = function defineProperties(object, properties) {
         for (var property in properties) {
-            if (has.call(properties, property))
+            if (owns(properties, property))
                 Object.defineProperty(object, property, properties[property]);
         }
         return object;
@@ -3397,7 +3805,7 @@ if (!Object.defineProperties) {
 
 // ES5 15.2.3.8
 if (!Object.seal) {
-    Object.seal = function (object) {
+    Object.seal = function seal(object) {
         // this is misleading and breaks feature-detection, but
         // allows "securable" code to "gracefully" degrade to working
         // but insecure code.
@@ -3407,7 +3815,7 @@ if (!Object.seal) {
 
 // ES5 15.2.3.9
 if (!Object.freeze) {
-    Object.freeze = function (object) {
+    Object.freeze = function freeze(object) {
         // this is misleading and breaks feature-detection, but
         // allows "securable" code to "gracefully" degrade to working
         // but insecure code.
@@ -3419,12 +3827,12 @@ if (!Object.freeze) {
 try {
     Object.freeze(function () {});
 } catch (exception) {
-    Object.freeze = (function (freeze) {
-        return function (object) {
-            if (typeof object == "function") {
+    Object.freeze = (function freeze(freezeObject) {
+        return function freeze(object) {
+            if (typeof object === "function") {
                 return object;
             } else {
-                return freeze(object);
+                return freezeObject(object);
             }
         };
     })(Object.freeze);
@@ -3432,7 +3840,7 @@ try {
 
 // ES5 15.2.3.10
 if (!Object.preventExtensions) {
-    Object.preventExtensions = function (object) {
+    Object.preventExtensions = function preventExtensions(object) {
         // this is misleading and breaks feature-detection, but
         // allows "securable" code to "gracefully" degrade to working
         // but insecure code.
@@ -3442,21 +3850,21 @@ if (!Object.preventExtensions) {
 
 // ES5 15.2.3.11
 if (!Object.isSealed) {
-    Object.isSealed = function (object) {
+    Object.isSealed = function isSealed(object) {
         return false;
     };
 }
 
 // ES5 15.2.3.12
 if (!Object.isFrozen) {
-    Object.isFrozen = function (object) {
+    Object.isFrozen = function isFrozen(object) {
         return false;
     };
 }
 
 // ES5 15.2.3.13
 if (!Object.isExtensible) {
-    Object.isExtensible = function (object) {
+    Object.isExtensible = function isExtensible(object) {
         return true;
     };
 }
@@ -3480,7 +3888,7 @@ if (!Object.keys) {
     for (var key in {"toString": null})
         hasDontEnumBug = false;
 
-    Object.keys = function (object) {
+    Object.keys = function keys(object) {
 
         if (
             typeof object !== "object" && typeof object !== "function"
@@ -3490,7 +3898,7 @@ if (!Object.keys) {
 
         var keys = [];
         for (var name in object) {
-            if (has.call(object, name)) {
+            if (owns(object, name)) {
                 keys.push(name);
             }
         }
@@ -3498,7 +3906,7 @@ if (!Object.keys) {
         if (hasDontEnumBug) {
             for (var i = 0, ii = dontEnumsLength; i < ii; i++) {
                 var dontEnum = dontEnums[i];
-                if (has.call(object, dontEnum)) {
+                if (owns(object, dontEnum)) {
                     keys.push(dontEnum);
                 }
             }
@@ -3518,7 +3926,7 @@ if (!Object.keys) {
 // Format a Date object as a string according to a subset of the ISO-8601 standard.
 // Useful in Atom, among other things.
 if (!Date.prototype.toISOString) {
-    Date.prototype.toISOString = function() {
+    Date.prototype.toISOString = function toISOString() {
         return (
             this.getUTCFullYear() + "-" +
             (this.getUTCMonth() + 1) + "-" +
@@ -3526,20 +3934,20 @@ if (!Date.prototype.toISOString) {
             this.getUTCHours() + ":" +
             this.getUTCMinutes() + ":" +
             this.getUTCSeconds() + "Z"
-        ); 
+        );
     }
 }
 
 // ES5 15.9.4.4
 if (!Date.now) {
-    Date.now = function () {
+    Date.now = function now() {
         return new Date().getTime();
     };
 }
 
 // ES5 15.9.5.44
 if (!Date.prototype.toJSON) {
-    Date.prototype.toJSON = function (key) {
+    Date.prototype.toJSON = function toJSON(key) {
         // This function provides a String representation of a Date object for
         // use by JSON.stringify (15.12.3). When the toJSON method is called
         // with argument key, the following steps are taken:
@@ -3552,7 +3960,7 @@ if (!Date.prototype.toJSON) {
         // 4. Let toISO be the result of calling the [[Get]] internal method of
         // O with argument "toISOString".
         // 5. If IsCallable(toISO) is false, throw a TypeError exception.
-        if (typeof this.toISOString != "function")
+        if (typeof this.toISOString !== "function")
             throw new TypeError();
         // 6. Return the result of calling the [[Call]] internal method of
         // toISO with O as the this value and an empty argument list.
@@ -3616,7 +4024,7 @@ if (isNaN(Date.parse("T00:00"))) {
                         "(\\d\\d)" + // day capture
                     ")?" +
                 ")?" +
-            ")?" + 
+            ")?" +
             "(?:T" + // hour:minute:second.subsecond
                 "(\\d\\d)" + // hour capture
                 ":(\\d\\d)" + // minute capture
@@ -3645,7 +4053,7 @@ if (isNaN(Date.parse("T00:00"))) {
         // Upgrade Date.parse to handle the ISO dates we use
         // TODO review specification to ascertain whether it is
         // necessary to implement partial ISO date strings.
-        Date.parse = function(string) {
+        Date.parse = function parse(string) {
             var match = isoDateExpression.exec(string);
             if (match) {
                 match.shift(); // kill match[0], the full match
@@ -3686,127 +4094,6 @@ if (isNaN(Date.parse("T00:00"))) {
     })(Date);
 }
 
-// 
-// Function
-// ========
-// 
-
-// ES-5 15.3.4.5
-// http://www.ecma-international.org/publications/files/drafts/tc39-2009-025.pdf
-var slice = Array.prototype.slice;
-if (!Function.prototype.bind) {
-    Function.prototype.bind = function (that) { // .length is 1
-        // 1. Let Target be the this value.
-        var target = this;
-        // 2. If IsCallable(Target) is false, throw a TypeError exception.
-        // XXX this gets pretty close, for all intents and purposes, letting 
-        // some duck-types slide
-        if (typeof target.apply != "function" || typeof target.call != "function")
-            return new TypeError();
-        // 3. Let A be a new (possibly empty) internal list of all of the
-        //   argument values provided after thisArg (arg1, arg2 etc), in order.
-        var args = slice.call(arguments);
-        // 4. Let F be a new native ECMAScript object.
-        // 9. Set the [[Prototype]] internal property of F to the standard
-        //   built-in Function prototype object as specified in 15.3.3.1.
-        // 10. Set the [[Call]] internal property of F as described in
-        //   15.3.4.5.1.
-        // 11. Set the [[Construct]] internal property of F as described in
-        //   15.3.4.5.2.
-        // 12. Set the [[HasInstance]] internal property of F as described in
-        //   15.3.4.5.3.
-        // 13. The [[Scope]] internal property of F is unused and need not
-        //   exist.
-        var bound = function () {
-
-            if (this instanceof bound) {
-                // 15.3.4.5.2 [[Construct]]
-                // When the [[Construct]] internal method of a function object,
-                // F that was created using the bind function is called with a
-                // list of arguments ExtraArgs the following steps are taken:
-                // 1. Let target be the value of F's [[TargetFunction]]
-                //   internal property.
-                // 2. If target has no [[Construct]] internal method, a
-                //   TypeError exception is thrown.
-                // 3. Let boundArgs be the value of F's [[BoundArgs]] internal
-                //   property.
-                // 4. Let args be a new list containing the same values as the
-                //   list boundArgs in the same order followed by the same
-                //   values as the list ExtraArgs in the same order.
-
-                var self = Object.create(target.prototype);
-                target.apply(self, args.concat(slice.call(arguments)));
-                return self;
-
-            } else {
-                // 15.3.4.5.1 [[Call]]
-                // When the [[Call]] internal method of a function object, F,
-                // which was created using the bind function is called with a
-                // this value and a list of arguments ExtraArgs the following
-                // steps are taken:
-                // 1. Let boundArgs be the value of F's [[BoundArgs]] internal
-                //   property.
-                // 2. Let boundThis be the value of F's [[BoundThis]] internal
-                //   property.
-                // 3. Let target be the value of F's [[TargetFunction]] internal
-                //   property.
-                // 4. Let args be a new list containing the same values as the list
-                //   boundArgs in the same order followed by the same values as
-                //   the list ExtraArgs in the same order. 5.  Return the
-                //   result of calling the [[Call]] internal method of target
-                //   providing boundThis as the this value and providing args
-                //   as the arguments.
-
-                // equiv: target.call(this, ...boundArgs, ...args)
-                return target.call.apply(
-                    target,
-                    args.concat(slice.call(arguments))
-                );
-
-            }
-
-        };
-        // 5. Set the [[TargetFunction]] internal property of F to Target.
-        // extra:
-        bound.bound = target;
-        // 6. Set the [[BoundThis]] internal property of F to the value of
-        // thisArg.
-        // extra:
-        bound.boundTo = that;
-        // 7. Set the [[BoundArgs]] internal property of F to A.
-        // extra:
-        bound.boundArgs = args;
-        bound.length = (
-            // 14. If the [[Class]] internal property of Target is "Function", then
-            typeof target == "function" ?
-            // a. Let L be the length property of Target minus the length of A.
-            // b. Set the length own property of F to either 0 or L, whichever is larger.
-            Math.max(target.length - args.length, 0) :
-            // 15. Else set the length own property of F to 0.
-            0
-        )
-        // 16. The length own property of F is given attributes as specified in
-        //   15.3.5.1.
-        // TODO
-        // 17. Set the [[Extensible]] internal property of F to true.
-        // TODO
-        // 18. Call the [[DefineOwnProperty]] internal method of F with
-        //   arguments "caller", PropertyDescriptor {[[Value]]: null,
-        //   [[Writable]]: false, [[Enumerable]]: false, [[Configurable]]:
-        //   false}, and false.
-        // TODO
-        // 19. Call the [[DefineOwnProperty]] internal method of F with
-        //   arguments "arguments", PropertyDescriptor {[[Value]]: null,
-        //   [[Writable]]: false, [[Enumerable]]: false, [[Configurable]]:
-        //   false}, and false.
-        // TODO
-        // NOTE Function objects created using Function.prototype.bind do not
-        // have a prototype property.
-        // XXX can't delete it in pure-js.
-        return bound;
-    };
-}
-
 //
 // String
 // ======
@@ -3817,15 +4104,14 @@ if (!String.prototype.trim) {
     // http://blog.stevenlevithan.com/archives/faster-trim-javascript
     var trimBeginRegexp = /^\s\s*/;
     var trimEndRegexp = /\s\s*$/;
-    String.prototype.trim = function () {
+    String.prototype.trim = function trim() {
         return String(this).replace(trimBeginRegexp, '').replace(trimEndRegexp, '');
     };
 }
 
-exports.globalsLoaded = true;
-
 });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/be838c6d9a6db05254ca57f11ea5029390a2997c@/package.json'), [], function() { return {"name":"ace","description":"Ajax.org Code Editor is a full featured source code highlighting editor that powers the Cloud9 IDE","version":"0.1.6","homepage":"http://github.com/ajaxorg/ace","engines":{"node":">= 0.2.0"},"author":"Fabian Jakobs <fabian@ajax.org>","main":"","repository":{"type":"git","url":"http://github.com/ajaxorg/ace.git"},"overlay":{"teleport":{"directories":{"lib":"lib/ace","dependencies":{"cockpit":">=0.1.1","pilot":">=0.1.1"}}}},"dependencies":{"pilot":">=0.1.1","cockpit":">=0.1.1","teleport":">=0.2.6","asyncjs":">=0.0.2","jsdom":">=0.1.23","htmlparser":">=1.7.2","dryice":">=0.2.2","mime":">=1.2.1"},"licenses":[{"type":"MPL","url":"http://www.mozilla.org/MPL/"},{"type":"GPL","url":"http://www.gnu.org/licenses/gpl.html"},{"type":"LGPL","url":"http://www.gnu.org/licenses/lgpl.html"}],"uid":"https://github.com/ajaxorg/ace/","directories":{"lib":"lib/ace"},"contexts":{"top":{"/":{"include":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"load":{"github.com/ajaxorg/ace/@/lib/ace/mode/*":{"parent":"github.com/ajaxorg/ace/@/","parents":{"github.com/ajaxorg/ace/@/":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/ace-editor/@/main":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/extjs-ace/@/":[],"github.com/cadorn/ace-extjs/packages/extjs3-ace/":[]}},"github.com/ajaxorg/ace/@/lib/ace/theme/*":{"parent":"github.com/ajaxorg/ace/@/","parents":{"github.com/ajaxorg/ace/@/":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/ace-editor/@/main":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/extjs-ace/@/":[],"github.com/cadorn/ace-extjs/packages/extjs3-ace/":[]}}},"id":"github.com/ajaxorg/ace/@/","ignore":true,"parent":"github.com/cadorn/ace-extjs/packages/ace-editor/@/main"}}},"modules":{"/lib/ace/worker/worker_client":{"module":"modules/ace/worker/worker_client","location":"" + bravojs.mainModuleDir + "/a3d9ddf257e98144c883cd2dbc03ab62243dbc09"}},"mappings":{"ace":{"location":"" + bravojs.mainModuleDir + "/be838c6d9a6db05254ca57f11ea5029390a2997c"},"pilot":{"location":"" + bravojs.mainModuleDir + "/ebd88462734df1207a34b544b42917b1f1f52813"}}}; });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/539c1b401b1ed3c4feb4e16c715a1e9fd4289992@/package.json'), [], function() { return {"name":"cockpit","description":"Command line component for Skywriter/Ace/Cloud9/etc","version":"0.1.1","homepage":"http://github.com/joewalker/cockpit","engines":{"node":">= 0.1.102","teleport":">=0.2.0"},"dependencies":{"pilot":">=0.1.1"},"overlay":{"teleport":{"directories":{"lib":"lib/cockpit"}}},"author":"Joe Walker <jwalker@mozilla.com>","main":"lib/cockpit","repository":{"type":"git","url":"http://github.com/joewalker/cockpit.git"},"licenses":[{"type":"LGPLv3","url":"http://www.gnu.org/licenses/lgpl-3.0.txt"}],"uid":"https://github.com/ajaxorg/cockpit/","directories":{"lib":"lib/cockpit"},"mappings":{"cockpit":{"location":"" + bravojs.mainModuleDir + "/539c1b401b1ed3c4feb4e16c715a1e9fd4289992"},"pilot":{"location":"" + bravojs.mainModuleDir + "/ebd88462734df1207a34b544b42917b1f1f52813"}}}; });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/a3d9ddf257e98144c883cd2dbc03ab62243dbc09@/package.json'), [], function() { return {"uid":"http://github.com/cadorn/ace-extjs/packages/ace-editor/","main":"main.js","directories":{"lib":""},"contexts":{"top":{"/main":{"include":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/ajaxorg/ace/"],"load":{"github.com/ajaxorg/ace/":{"parent":"github.com/cadorn/ace-extjs/packages/ace-editor/@/main","include":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"load":{"github.com/ajaxorg/ace/@/lib/ace/mode/*":{"parent":"github.com/ajaxorg/ace/@/","parents":{"github.com/ajaxorg/ace/@/":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/ace-editor/@/main":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/extjs-ace/@/":[],"github.com/cadorn/ace-extjs/packages/extjs3-ace/":[]}},"github.com/ajaxorg/ace/@/lib/ace/theme/*":{"parent":"github.com/ajaxorg/ace/@/","parents":{"github.com/ajaxorg/ace/@/":["github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/ace-editor/@/main":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/extjs-ace/@/":[],"github.com/cadorn/ace-extjs/packages/extjs3-ace/":[]}}},"id":"github.com/ajaxorg/ace/@/","ignore":true,"parents":{"github.com/cadorn/ace-extjs/packages/ace-editor/@/main":["github.com/ajaxorg/pilot/@/lib/pilot/index","github.com/ajaxorg/ace/@/lib/ace/defaults","github.com/ajaxorg/cockpit/@/lib/cockpit/index","github.com/ajaxorg/ace/@/lib/ace/range","github.com/ajaxorg/ace/@/lib/ace/tokenizer","github.com/ajaxorg/ace/@/lib/ace/mode/text","github.com/ajaxorg/ace/@/lib/ace/mode/matching_brace_outdent","github.com/ajaxorg/ace/@/lib/ace/mode/doc_comment_highlight_rules"],"github.com/cadorn/ace-extjs/packages/extjs-ace/@/":[],"github.com/cadorn/ace-extjs/packages/extjs3-ace/":[]}}},"id":"github.com/cadorn/ace-extjs/packages/ace-editor/@/main","parent":"github.com/cadorn/ace-extjs/packages/extjs-ace/@/"}}},"mappings":{"worker":{"location":"" + bravojs.mainModuleDir + "/b339f0b799f23466a9fb3ac92af4cb7e572604a6"},"ace":{"location":"" + bravojs.mainModuleDir + "/be838c6d9a6db05254ca57f11ea5029390a2997c"},"cockpit":{"location":"" + bravojs.mainModuleDir + "/539c1b401b1ed3c4feb4e16c715a1e9fd4289992"},"pilot":{"location":"" + bravojs.mainModuleDir + "/ebd88462734df1207a34b544b42917b1f1f52813"}}}; });
+});
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/package.json'), [], function() { return {"name":"ace","description":"Ajax.org Code Editor is a full featured source code highlighting editor that powers the Cloud9 IDE","version":"0.1.6","homepage":"http://github.com/ajaxorg/ace","engines":{"node":">= 0.2.0"},"author":"Fabian Jakobs <fabian@ajax.org>","main":"","repository":{"type":"git","url":"http://github.com/ajaxorg/ace.git"},"overlay":{"teleport":{"directories":{"lib":"lib/ace","dependencies":{"cockpit":">=0.1.1","pilot":">=0.1.1"}}}},"dependencies":[{"id":"github.com/cadorn/ace-extjs/packages/ace-editor/","descriptor":{"directories":{"lib":"modules"}},"location":"/Users/cadorn/pinf/workspaces/github.com/cadorn/ace-extjs/packages/ace-editor"}],"licenses":[{"type":"MPL","url":"http://www.mozilla.org/MPL/"},{"type":"GPL","url":"http://www.gnu.org/licenses/gpl.html"},{"type":"LGPL","url":"http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html"}],"directories":{"lib":"lib/ace"},"uid":"https://github.com/ajaxorg/ace/","contexts":{"top":{"/":{"include":{"/lib/ace/range":{},"/lib/ace/tokenizer":{},"/lib/ace/mode/text":{},"/lib/ace/mode/matching_brace_outdent":{},"/lib/ace/mode/doc_comment_highlight_rules":{}},"load":{"/lib/ace/mode/*":{},"/lib/ace/theme/*":{}}}}},"modules":{"/lib/ace/worker/worker_client":{"module":"modules/ace/worker/worker_client","location":"" + bravojs.mainModuleDir + "/a3d9ddf257e98144c883cd2dbc03ab62243dbc09"}},"mappings":{"ace":{"location":"" + bravojs.mainModuleDir + "/87749d9714f1925e26afa48a0d592eaa39403858"},"pilot":{"location":"" + bravojs.mainModuleDir + "/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c"},"asyncjs":{"available":false}}}; });
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/b5bd9e5093176e86aa6f6c4d581342361d8c923f@/package.json'), [], function() { return {"name":"cockpit","description":"Command line component for Skywriter/Ace/Cloud9/etc","version":"0.1.1","homepage":"http://github.com/joewalker/cockpit","engines":{"node":">= 0.1.102","teleport":">=0.2.0"},"dependencies":{"pilot":">=0.1.1"},"overlay":{"teleport":{"directories":{"lib":"lib/cockpit"}}},"author":"Joe Walker <jwalker@mozilla.com>","main":"lib/cockpit","repository":{"type":"git","url":"http://github.com/joewalker/cockpit.git"},"licenses":[{"type":"LGPLv3","url":"http://www.gnu.org/licenses/lgpl-3.0.txt"}],"uid":"https://github.com/ajaxorg/cockpit/","directories":{"lib":"lib/cockpit"},"mappings":{"cockpit":{"location":"" + bravojs.mainModuleDir + "/b5bd9e5093176e86aa6f6c4d581342361d8c923f"},"pilot":{"location":"" + bravojs.mainModuleDir + "/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c"}}}; });
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/a3d9ddf257e98144c883cd2dbc03ab62243dbc09@/package.json'), [], function() { return {"uid":"http://github.com/cadorn/ace-extjs/packages/ace-editor/","main":"main.js","directories":{"lib":""},"contexts":{"top":{"/main":{"include":{"github.com/ajaxorg/pilot/@/lib/pilot/index":{},"github.com/ajaxorg/ace/@/lib/ace/defaults":{},"github.com/ajaxorg/cockpit/@/lib/cockpit/index":{},"github.com/ajaxorg/ace/":{}}}}},"mappings":{"worker":{"location":"" + bravojs.mainModuleDir + "/b339f0b799f23466a9fb3ac92af4cb7e572604a6"},"ace":{"location":"" + bravojs.mainModuleDir + "/87749d9714f1925e26afa48a0d592eaa39403858"},"cockpit":{"location":"" + bravojs.mainModuleDir + "/b5bd9e5093176e86aa6f6c4d581342361d8c923f"},"pilot":{"location":"" + bravojs.mainModuleDir + "/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c"}}}; });
 __bravojs_loaded_moduleIdentifier = bravojs.realpath(bravojs.mainModuleDir + '/b339f0b799f23466a9fb3ac92af4cb7e572604a6@/worker');
