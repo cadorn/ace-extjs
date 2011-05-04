@@ -27,7 +27,8 @@
         },
         "github.com/ajaxorg/ace/": {
             "locator": {
-                "archive": "https://github.com/ajaxorg/ace/zipball/master"
+                "archive": "https://github.com/ajaxorg/ace/zipball/27bb78a0a86706977f2a1ab3785e3e9a1a30ef8d",
+                "archive_OLD": "https://github.com/ajaxorg/ace/zipball/master"
             },
             "descriptor": {
                 "uid": "https://github.com/ajaxorg/ace/",
@@ -64,13 +65,27 @@
                     },
                     "pilot": {
                         "id": "github.com/ajaxorg/pilot/"
+                    },
+                    "asyncjs": {
+                        "available": false
                     }
-                }
+                },
+                "dependencies": [
+                    {
+                        "id": "github.com/cadorn/ace-extjs/packages/ace-editor/",
+                        "descriptor": {
+                            "directories": {
+                                "lib": "modules"
+                            }
+                        }
+                    }
+                ]
             }
         },
         "github.com/ajaxorg/cockpit/": {
             "locator": {
-                "archive": "https://github.com/ajaxorg/cockpit/zipball/master"
+                "archive": "https://github.com/ajaxorg/cockpit/zipball/33f02ab3af5d755c98b3c58309ac2c62fc6de736",
+                "archive_OLD": "https://github.com/ajaxorg/cockpit/zipball/master"
             },
             "descriptor": {
                 "uid": "https://github.com/ajaxorg/cockpit/",
@@ -89,7 +104,8 @@
         },
         "github.com/ajaxorg/pilot/": {
             "locator": {
-                "archive": "https://github.com/ajaxorg/pilot/zipball/master"
+                "archive": "https://github.com/ajaxorg/pilot/zipball/ab8065643f28a1a4a3db30f6f68d378581397ff4",
+                "archive_OLD": "https://github.com/ajaxorg/pilot/zipball/master"
             },
             "descriptor": {
                 "uid": "https://github.com/ajaxorg/pilot/",

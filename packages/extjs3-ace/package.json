@@ -5,7 +5,7 @@
     "contexts": {
         "top": {
             "/lib/component": {
-                "load": {
+                "include": {
                     "github.com/cadorn/ace-extjs/packages/extjs-ace/": {}
                 }
             }

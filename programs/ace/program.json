@@ -5,10 +5,8 @@
     "boot": "github.com/cadorn/ace-extjs/packages/ace-editor/",
     "contexts": {
         "top": {
-            "github.com/cadorn/ace-extjs/packages/ace-editor/": {
-            },
-            "github.com/cadorn/ace-extjs/packages/ace-worker/@/worker": {
-            }
+            "github.com/cadorn/ace-extjs/packages/ace-editor/": {},
+            "github.com/cadorn/ace-extjs/packages/ace-worker/@/worker": {}
         }
     },
     "packages": {

@@ -9,7 +9,7 @@ module.declare(["extjs-ace/component"], function(require, exports, module)
         
         var component = COMPONENT.getComponent();
 
-        component.extend = "Ext.AbstractComponent";
+        component.extend = "Ext.panel.Panel";
 
         Ext.define("Ext.ux.AceEditor", component);
     }

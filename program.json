@@ -17,7 +17,7 @@
         },
         "sencha.com/products/extjs4": {
             "locator": {
-                "archive": "http://dev.sencha.com/deploy/ext-4.0-pr3.zip",
+                "archive": "http://extjs.cachefly.net/ext-4.0.0-com.zip",
                 "resource": true
             }
         },
