@@ -1,306 +1,128 @@
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/75facf7e3e2e534c307f54f259c3e920b1dc6965@/package.json'), [], function() { return {"uid":"http://github.com/cadorn/ace-extjs/packages/extjs3-ace/","name":"extjs3-ace","main":"lib/component.js","contexts":{"top":{"/lib/component":{"include":{"github.com/cadorn/ace-extjs/packages/extjs-ace/":{}}}}},"mappings":{"extjs-ace":{"location":"" + bravojs.mainModuleDir + "/aae9e0c4eed45f3c888f8e7824a96a83f5f8f861"},"ace":{"location":"" + bravojs.mainModuleDir + "/87749d9714f1925e26afa48a0d592eaa39403858"},"cockpit":{"location":"" + bravojs.mainModuleDir + "/b5bd9e5093176e86aa6f6c4d581342361d8c923f"},"pilot":{"location":"" + bravojs.mainModuleDir + "/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c"}}}; });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/75facf7e3e2e534c307f54f259c3e920b1dc6965@/lib/component'), ['extjs-ace/component'], function (require, exports, module)
-{
-    var COMPONENT = require("extjs-ace/component");
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/perl_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/text_highlight_rules'], function (require, exports, module) {
 
-    exports.main = function()
-    {
-        COMPONENT.init();
-        
-        var component = COMPONENT.getComponent();
 
-        Ext.ux.AceEditor = Ext.extend(Ext.BoxComponent, component);
-    }
-});
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/aae9e0c4eed45f3c888f8e7824a96a83f5f8f861@/package.json'), [], function() { return {"uid":"http://github.com/cadorn/ace-extjs/packages/extjs-ace/","name":"extjs-ace","main":"","contexts":{"top":{"/":{"load":{"github.com/cadorn/ace-extjs/packages/ace-editor/":{}}}}},"mappings":{"editor":{"location":"" + bravojs.mainModuleDir + "/a3d9ddf257e98144c883cd2dbc03ab62243dbc09"},"ace":{"location":"" + bravojs.mainModuleDir + "/87749d9714f1925e26afa48a0d592eaa39403858"},"cockpit":{"location":"" + bravojs.mainModuleDir + "/b5bd9e5093176e86aa6f6c4d581342361d8c923f"},"pilot":{"location":"" + bravojs.mainModuleDir + "/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c"}}}; });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/aae9e0c4eed45f3c888f8e7824a96a83f5f8f861@/lib/component'), ['pilot/dom','text!./component.css'], function (require, exports, module)
-{
-    var DOM = require("pilot/dom");
+var oop = require("pilot/oop");
+var lang = require("pilot/lang");
+var TextHighlightRules = require("ace/mode/text_highlight_rules").TextHighlightRules;
 
-    exports.init = function()
-    {
-        DOM.importCssString(require("text!./component.css"));
-    }
+var PerlHighlightRules = function() {
 
-    exports.getComponent = function()
-    {
-        return {
+    var keywords = lang.arrayToMap(
+        ("base|constant|continue|else|elsif|for|foreach|format|goto|if|last|local|my|next|" +
+         "no|package|parent|redo|require|scalar|sub|unless|until|while|use|vars").split("|")
+    );
 
-            baseCls: "x-ux-ace-editor-panel",
+    var buildinConstants = lang.arrayToMap(
+        ("ARGV|ENV|INC|SIG").split("|")
+    );
 
-            initComponent: function()
+    var builtinFunctions = lang.arrayToMap(
+        ("getprotobynumber|getprotobyname|getservbyname|gethostbyaddr|" +
+         "gethostbyname|getservbyport|getnetbyaddr|getnetbyname|getsockname|" +
+         "getpeername|setpriority|getprotoent|setprotoent|getpriority|" +
+         "endprotoent|getservent|setservent|endservent|sethostent|socketpair|" +
+         "getsockopt|gethostent|endhostent|setsockopt|setnetent|quotemeta|" +
+         "localtime|prototype|getnetent|endnetent|rewinddir|wantarray|getpwuid|" +
+         "closedir|getlogin|readlink|endgrent|getgrgid|getgrnam|shmwrite|" +
+         "shutdown|readline|endpwent|setgrent|readpipe|formline|truncate|" +
+         "dbmclose|syswrite|setpwent|getpwnam|getgrent|getpwent|ucfirst|sysread|" +
+         "setpgrp|shmread|sysseek|sysopen|telldir|defined|opendir|connect|" +
+         "lcfirst|getppid|binmode|syscall|sprintf|getpgrp|readdir|seekdir|" +
+         "waitpid|reverse|unshift|symlink|dbmopen|semget|msgrcv|rename|listen|" +
+         "chroot|msgsnd|shmctl|accept|unpack|exists|fileno|shmget|system|" +
+         "unlink|printf|gmtime|msgctl|semctl|values|rindex|substr|splice|" +
+         "length|msgget|select|socket|return|caller|delete|alarm|ioctl|index|" +
+         "undef|lstat|times|srand|chown|fcntl|close|write|umask|rmdir|study|" +
+         "sleep|chomp|untie|print|utime|mkdir|atan2|split|crypt|flock|chmod|" +
+         "BEGIN|bless|chdir|semop|shift|reset|link|stat|chop|grep|fork|dump|" +
+         "join|open|tell|pipe|exit|glob|warn|each|bind|sort|pack|eval|push|" +
+         "keys|getc|kill|seek|sqrt|send|wait|rand|tied|read|time|exec|recv|" +
+         "eof|chr|int|ord|exp|pos|pop|sin|log|abs|oct|hex|tie|cos|vec|END|ref|" +
+         "map|die|uc|lc|do").split("|")
+    );
+
+    // regexp must not have capturing parentheses. Use (?:) instead.
+    // regexps are ordered -> the first match is used
+
+    this.$rules = {
+        "start" : [
             {
-                Ext.ux.AceEditor.superclass.initComponent.call(this);
-                var self = this;
-
-                self.editorClass = null;
-                self.initialized = false;
-
-                self.value = null;
-                self.editor = null;
-                
-                self.session = null;
-
-                // async load editor
-                module.load("editor/main", function(id)
-                {
-                    self.editorClass = require(id);
-
-                    // init the editor
-                    self.editorClass.init(function(env)
-                    {
-                        var CANON = self.editorClass.module("pilot/canon");
-
-                        self.addEvents(
-                            "editor-save",
-                            "editor-saveas"
-                        );
-
-                        CANON.addCommand({
-                            name: "save",
-                            bindKey: {
-                                win: "Ctrl-S",
-                                mac: "Command-S",
-                                sender: "editor|cli"
-                            },
-                            exec: function()
-                            {
-                                self.fireEvent('editor-save', self);
-                            }
-                        });
-
-                        CANON.addCommand({
-                            name: "saveas",
-                            bindKey: {
-                                win: "Ctrl-Shift-S",
-                                mac: "Command-Shift-S",
-                                sender: "editor|cli"
-                            },
-                            exec: function()
-                            {
-                                self.fireEvent('editor-saveas', self);
-                            }
-                        });
-                        
-                        self.firstRender();
-                    });
-                });
-            },
-
-            firstRender: function()
-            {
-                var self = this;
-
-                var EDITOR = self.editorClass.module("ace/editor").Editor,
-                    RENDERER = self.editorClass.module("ace/virtual_renderer").VirtualRenderer,
-                    THEME = self.editorClass.module("ace/theme/textmate");  // default
-//                    var EVENT = self.editorClass.module("pilot/event");
-
-                self.el.dom.innerHTML = "";
-                
-                self.renderer = new RENDERER(self.el.dom, THEME);
-                self.editor = new EDITOR(self.renderer);
-                self.editor.resize();
-
-                self.initialized = true;
-
-                if(self.value!==null)
-                {
-                    self.setValue(self.value[0], self.value[1]);
-                }
-            },
-
-            onRender: function()
-            {
-                Ext.ux.AceEditor.superclass.onRender.apply(this, arguments);
-
-                if (typeof this.el.addCls != "undefined")
-                    this.el.addCls(this.baseCls);   // ExtJS 4
-                else
-                    this.el.addClass(this.baseCls);   // ExtJS 3
-
-                if (!this.initialized)
-                {
-                    // TODO: Make this look nicer
-                    this.el.dom.innerHTML = "Loading Editor ...";
-                }
-            },
-
-            onResize: function( aw, ah )
-            {
-                if(this.editor) {
-                    this.editor.resize();
-                }
-            },
-
-            getValue: function()
-            {
-                return this.editor.getDocument().getValue();
-            },
-
-            getEditor: function()
-            {
-                return this.editor;
-            },
-
-            getSession: function()
-            {
-                return this.session;
-            },
-
-            getRenderer: function()
-            {
-                return this.renderer;
-            },
-
-            setValue: function(value, options)
-            {
-                if (!this.initialized)
-                {
-                    this.value = [value, options];
-                    return;
-                }
-                this.value = null;
-
-                options = options || {};
-
-                var SESSION = this.editorClass.module("ace/edit_session").EditSession,
-                    UNDO_MANAGER = this.editorClass.module("ace/undomanager").UndoManager;
-
-                var session = new SESSION(value);
-                session.setUndoManager(new UNDO_MANAGER());
-
-                session.getDocument().addEventListener("changeDelta", function()
-                {
-                    self.fireEvent('editor-changeDelta', self);
-                });
-
-                var mode = "text";
-                if (typeof options.mode != "undefined")
-                {
-                    mode = options.mode;
-                }
-                else
-                {
-                    if(typeof options.basename != "undefined")
-                    {
-                        if (/^.*\.js$/i.test(options.basename)) {
-                            mode = "javascript";
-                        } else if (/^.*\.xml$/i.test(options.basename)) {
-                            mode = "xml";
-                        } else if (/^.*\.html?$/i.test(options.basename)) {
-                            mode = "html";
-                        } else if (/^.*\.css$/i.test(options.basename)) {
-                            mode = "css";
-                        } else if (/^.*\.py$/i.test(options.basename)) {
-                            mode = "python";
-                        } else if (/^.*\.php$/i.test(options.basename)) {
-                            mode = "php";
-                          } else if (/^.*\.cs$/i.test(options.basename)) {
-                              mode = "csharp";
-                        } else if (/^.*\.java$/i.test(options.basename)) {
-                            mode = "java";
-                        } else if (/^.*\.rb$/i.test(options.basename)) {
-                            mode = "ruby";
-                        } else if (/^.*\.(c|cpp|h|hpp|cxx)$/i.test(options.basename)) {
-                            mode = "c_cpp";
-                        } else if (/^.*\.coffee$/i.test(options.basename)) {
-                            mode = "coffee";
-                        } else if (/^.*\.(pl|pm)$/i.test(options.basename)) {
-                            mode = "perl";
-                        }
-                    }
-                }
-
-                var self = this;
-
-                this.setMode(mode, {
-                    session: session,
-                    callback: function(session)
-                    {
-                        self.editor.setSession(session);
-
-                        self.session = session;
-
-                        if (typeof options.callback != "undefined")
-                        {
-                            options.callback(session);
-                        }
-                    }
-                });
-            },
-
-            setMode: function(name, options)
-            {
-                // TODO: display loading message
-
-                var self = this;
-
-                var session = options.session || self.session;
-                if (!session)
-                    throw new Error("Session required!");
-
-                // async load mode
-                module.load("ace/mode/" + name, function(id)
-                {
-                    var modeObj = new (require(id).Mode);
-                    session.setMode(modeObj);
-
-                    if (typeof options.callback != "undefined")
-                    {
-                        options.callback(session);
-                    }
-                });                
-            },
-
-            setTheme: function(name)
-            {
-                this.editor.setTheme("ace/theme/" + name);
-            },
-
-            setKeyboardHandler: function(name, options)
-            {
-                if (name === null)
-                {
-                    this.editor.setKeyboardHandler(null);
-                    return;
-                }
-                var self = this;
-
-                // TODO: This should be done more generically
-                var id = "ace/keyboard/keybinding/" + name;
-                if (name == "hash_handler") {
-                    id = "ace/keyboard/" + name;
-                }
-
-                // async load keybinding
-                module.load(id, function(id)
-                {
-                    var obj = require(id);
-
-                    // TODO: This should be done more generically
-                    if (name == "vim") {
-                        obj = obj.Vim;
-                    } else
-                    if (name == "emacs") {
-                        obj = obj.Emacs;
-                    } else
-                    if (name == "hash_handler") {
-                        obj = new obj.HashHandler(options);
-                    }
-
-                    self.editor.setKeyboardHandler(obj);
-                });
-            },
-
-            setFontSize: function(value)
-            {
-                this.el.dom.style.fontSize = value;
+                token : "comment",
+                regex : "#.*$"
+            }, {
+                token : "string.regexp",
+                regex : "[/](?:(?:\\[(?:\\\\]|[^\\]])+\\])|(?:\\\\/|[^\\]/]))*[/]\\w*\\s*(?=[).,;]|$)"
+            }, {
+                token : "string", // single line
+                regex : '["](?:(?:\\\\.)|(?:[^"\\\\]))*?["]'
+            }, {
+                token : "string", // multi line string start
+                regex : '["].*\\\\$',
+                next : "qqstring"
+            }, {
+                token : "string", // single line
+                regex : "['](?:(?:\\\\.)|(?:[^'\\\\]))*?[']"
+            }, {
+                token : "string", // multi line string start
+                regex : "['].*\\\\$",
+                next : "qstring"
+            }, {
+                token : "constant.numeric", // hex
+                regex : "0x[0-9a-fA-F]+\\b"
+            }, {
+                token : "constant.numeric", // float
+                regex : "[+-]?\\d+(?:(?:\\.\\d*)?(?:[eE][+-]?\\d+)?)?\\b"
+            }, {
+                token : function(value) {
+                    if (keywords.hasOwnProperty(value))
+                        return "keyword";
+                    else if (buildinConstants.hasOwnProperty(value))
+                        return "constant.language";
+                    else if (builtinFunctions.hasOwnProperty(value))
+                        return "support.function";
+                    else
+                        return "identifier";
+                },
+                regex : "[a-zA-Z_$][a-zA-Z0-9_$]*\\b"
+            }, {
+                token : "keyword.operator",
+                regex : "\\.\\.\\.|\\|\\|=|>>=|<<=|<=>|&&=|=>|!~|\\^=|&=|\\|=|\\.=|x=|%=|\\/=|\\*=|\\-=|\\+=|=~|\\*\\*|\\-\\-|\\.\\.|\\|\\||&&|\\+\\+|\\->|!=|==|>=|<=|>>|<<|,|=|\\?\\:|\\^|\\||x|%|\\/|\\*|<|&|\\\\|~|!|>|\\.|\\-|\\+|\\-C|\\-b|\\-S|\\-u|\\-t|\\-p|\\-l|\\-d|\\-f|\\-g|\\-s|\\-z|\\-k|\\-e|\\-O|\\-T|\\-B|\\-M|\\-A|\\-X|\\-W|\\-c|\\-R|\\-o|\\-x|\\-w|\\-r|\\b(?:and|cmp|eq|ge|gt|le|lt|ne|not|or|xor)"
+            }, {
+                token : "lparen",
+                regex : "[[({]"
+            }, {
+                token : "rparen",
+                regex : "[\\])}]"
+            }, {
+                token : "text",
+                regex : "\\s+"
             }
-        };
-    }
-});
-require.memoize('text!'+bravojs.realpath(bravojs.mainModuleDir + '/aae9e0c4eed45f3c888f8e7824a96a83f5f8f861@/lib/component.css'), [], function () {
-return ["",".x-ux-ace-editor-panel {","    border-style: solid;","    border-width: 0;","    border-color: #99bbe8;","    background-color: #ffffff;","}",""].join("\n");
+        ],
+        "qqstring" : [
+            {
+                token : "string",
+                regex : '(?:(?:\\\\.)|(?:[^"\\\\]))*?"',
+                next : "start"
+            }, {
+                token : "string",
+                regex : '.+'
+            }
+        ],
+        "qstring" : [
+            {
+                token : "string",
+                regex : "(?:(?:\\\\.)|(?:[^'\\\\]))*?'",
+                next : "start"
+            }, {
+                token : "string",
+                regex : '.+'
+            }
+        ]
+    };
+};
+
+oop.inherits(PerlHighlightRules, TextHighlightRules);
+
+exports.PerlHighlightRules = PerlHighlightRules;
 });
 __bravojs_loaded_moduleIdentifier = bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/perl_highlight_rules');

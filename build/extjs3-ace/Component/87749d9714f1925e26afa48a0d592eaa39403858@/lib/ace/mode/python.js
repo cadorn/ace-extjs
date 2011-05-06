@@ -1,306 +1,218 @@
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/75facf7e3e2e534c307f54f259c3e920b1dc6965@/package.json'), [], function() { return {"uid":"http://github.com/cadorn/ace-extjs/packages/extjs3-ace/","name":"extjs3-ace","main":"lib/component.js","contexts":{"top":{"/lib/component":{"include":{"github.com/cadorn/ace-extjs/packages/extjs-ace/":{}}}}},"mappings":{"extjs-ace":{"location":"" + bravojs.mainModuleDir + "/aae9e0c4eed45f3c888f8e7824a96a83f5f8f861"},"ace":{"location":"" + bravojs.mainModuleDir + "/87749d9714f1925e26afa48a0d592eaa39403858"},"cockpit":{"location":"" + bravojs.mainModuleDir + "/b5bd9e5093176e86aa6f6c4d581342361d8c923f"},"pilot":{"location":"" + bravojs.mainModuleDir + "/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c"}}}; });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/75facf7e3e2e534c307f54f259c3e920b1dc6965@/lib/component'), ['extjs-ace/component'], function (require, exports, module)
-{
-    var COMPONENT = require("extjs-ace/component");
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/python'), ['pilot/oop','ace/mode/text','ace/tokenizer','ace/mode/python_highlight_rules','ace/mode/matching_brace_outdent','ace/range'], function (require, exports, module) {
 
-    exports.main = function()
-    {
-        COMPONENT.init();
-        
-        var component = COMPONENT.getComponent();
 
-        Ext.ux.AceEditor = Ext.extend(Ext.BoxComponent, component);
-    }
-});
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/aae9e0c4eed45f3c888f8e7824a96a83f5f8f861@/package.json'), [], function() { return {"uid":"http://github.com/cadorn/ace-extjs/packages/extjs-ace/","name":"extjs-ace","main":"","contexts":{"top":{"/":{"load":{"github.com/cadorn/ace-extjs/packages/ace-editor/":{}}}}},"mappings":{"editor":{"location":"" + bravojs.mainModuleDir + "/a3d9ddf257e98144c883cd2dbc03ab62243dbc09"},"ace":{"location":"" + bravojs.mainModuleDir + "/87749d9714f1925e26afa48a0d592eaa39403858"},"cockpit":{"location":"" + bravojs.mainModuleDir + "/b5bd9e5093176e86aa6f6c4d581342361d8c923f"},"pilot":{"location":"" + bravojs.mainModuleDir + "/f9a24d6931cb0c0e8264fed132a0ed8c97415c4c"}}}; });
-require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/aae9e0c4eed45f3c888f8e7824a96a83f5f8f861@/lib/component'), ['pilot/dom','text!./component.css'], function (require, exports, module)
-{
-    var DOM = require("pilot/dom");
+var oop = require("pilot/oop");
+var TextMode = require("ace/mode/text").Mode;
+var Tokenizer = require("ace/tokenizer").Tokenizer;
+var PythonHighlightRules = require("ace/mode/python_highlight_rules").PythonHighlightRules;
+var MatchingBraceOutdent = require("ace/mode/matching_brace_outdent").MatchingBraceOutdent;
+var Range = require("ace/range").Range;
 
-    exports.init = function()
-    {
-        DOM.importCssString(require("text!./component.css"));
-    }
+var Mode = function() {
+    this.$tokenizer = new Tokenizer(new PythonHighlightRules().getRules());
+    this.$outdent = new MatchingBraceOutdent();
+};
+oop.inherits(Mode, TextMode);
 
-    exports.getComponent = function()
-    {
-        return {
+(function() {
 
-            baseCls: "x-ux-ace-editor-panel",
+    this.toggleCommentLines = function(state, doc, startRow, endRow) {
+        var outdent = true;
+        var outentedRows = [];
+        var re = /^(\s*)#/;
 
-            initComponent: function()
-            {
-                Ext.ux.AceEditor.superclass.initComponent.call(this);
-                var self = this;
-
-                self.editorClass = null;
-                self.initialized = false;
-
-                self.value = null;
-                self.editor = null;
-                
-                self.session = null;
-
-                // async load editor
-                module.load("editor/main", function(id)
-                {
-                    self.editorClass = require(id);
-
-                    // init the editor
-                    self.editorClass.init(function(env)
-                    {
-                        var CANON = self.editorClass.module("pilot/canon");
-
-                        self.addEvents(
-                            "editor-save",
-                            "editor-saveas"
-                        );
-
-                        CANON.addCommand({
-                            name: "save",
-                            bindKey: {
-                                win: "Ctrl-S",
-                                mac: "Command-S",
-                                sender: "editor|cli"
-                            },
-                            exec: function()
-                            {
-                                self.fireEvent('editor-save', self);
-                            }
-                        });
-
-                        CANON.addCommand({
-                            name: "saveas",
-                            bindKey: {
-                                win: "Ctrl-Shift-S",
-                                mac: "Command-Shift-S",
-                                sender: "editor|cli"
-                            },
-                            exec: function()
-                            {
-                                self.fireEvent('editor-saveas', self);
-                            }
-                        });
-                        
-                        self.firstRender();
-                    });
-                });
-            },
-
-            firstRender: function()
-            {
-                var self = this;
-
-                var EDITOR = self.editorClass.module("ace/editor").Editor,
-                    RENDERER = self.editorClass.module("ace/virtual_renderer").VirtualRenderer,
-                    THEME = self.editorClass.module("ace/theme/textmate");  // default
-//                    var EVENT = self.editorClass.module("pilot/event");
-
-                self.el.dom.innerHTML = "";
-                
-                self.renderer = new RENDERER(self.el.dom, THEME);
-                self.editor = new EDITOR(self.renderer);
-                self.editor.resize();
-
-                self.initialized = true;
-
-                if(self.value!==null)
-                {
-                    self.setValue(self.value[0], self.value[1]);
-                }
-            },
-
-            onRender: function()
-            {
-                Ext.ux.AceEditor.superclass.onRender.apply(this, arguments);
-
-                if (typeof this.el.addCls != "undefined")
-                    this.el.addCls(this.baseCls);   // ExtJS 4
-                else
-                    this.el.addClass(this.baseCls);   // ExtJS 3
-
-                if (!this.initialized)
-                {
-                    // TODO: Make this look nicer
-                    this.el.dom.innerHTML = "Loading Editor ...";
-                }
-            },
-
-            onResize: function( aw, ah )
-            {
-                if(this.editor) {
-                    this.editor.resize();
-                }
-            },
-
-            getValue: function()
-            {
-                return this.editor.getDocument().getValue();
-            },
-
-            getEditor: function()
-            {
-                return this.editor;
-            },
-
-            getSession: function()
-            {
-                return this.session;
-            },
-
-            getRenderer: function()
-            {
-                return this.renderer;
-            },
-
-            setValue: function(value, options)
-            {
-                if (!this.initialized)
-                {
-                    this.value = [value, options];
-                    return;
-                }
-                this.value = null;
-
-                options = options || {};
-
-                var SESSION = this.editorClass.module("ace/edit_session").EditSession,
-                    UNDO_MANAGER = this.editorClass.module("ace/undomanager").UndoManager;
-
-                var session = new SESSION(value);
-                session.setUndoManager(new UNDO_MANAGER());
-
-                session.getDocument().addEventListener("changeDelta", function()
-                {
-                    self.fireEvent('editor-changeDelta', self);
-                });
-
-                var mode = "text";
-                if (typeof options.mode != "undefined")
-                {
-                    mode = options.mode;
-                }
-                else
-                {
-                    if(typeof options.basename != "undefined")
-                    {
-                        if (/^.*\.js$/i.test(options.basename)) {
-                            mode = "javascript";
-                        } else if (/^.*\.xml$/i.test(options.basename)) {
-                            mode = "xml";
-                        } else if (/^.*\.html?$/i.test(options.basename)) {
-                            mode = "html";
-                        } else if (/^.*\.css$/i.test(options.basename)) {
-                            mode = "css";
-                        } else if (/^.*\.py$/i.test(options.basename)) {
-                            mode = "python";
-                        } else if (/^.*\.php$/i.test(options.basename)) {
-                            mode = "php";
-                          } else if (/^.*\.cs$/i.test(options.basename)) {
-                              mode = "csharp";
-                        } else if (/^.*\.java$/i.test(options.basename)) {
-                            mode = "java";
-                        } else if (/^.*\.rb$/i.test(options.basename)) {
-                            mode = "ruby";
-                        } else if (/^.*\.(c|cpp|h|hpp|cxx)$/i.test(options.basename)) {
-                            mode = "c_cpp";
-                        } else if (/^.*\.coffee$/i.test(options.basename)) {
-                            mode = "coffee";
-                        } else if (/^.*\.(pl|pm)$/i.test(options.basename)) {
-                            mode = "perl";
-                        }
-                    }
-                }
-
-                var self = this;
-
-                this.setMode(mode, {
-                    session: session,
-                    callback: function(session)
-                    {
-                        self.editor.setSession(session);
-
-                        self.session = session;
-
-                        if (typeof options.callback != "undefined")
-                        {
-                            options.callback(session);
-                        }
-                    }
-                });
-            },
-
-            setMode: function(name, options)
-            {
-                // TODO: display loading message
-
-                var self = this;
-
-                var session = options.session || self.session;
-                if (!session)
-                    throw new Error("Session required!");
-
-                // async load mode
-                module.load("ace/mode/" + name, function(id)
-                {
-                    var modeObj = new (require(id).Mode);
-                    session.setMode(modeObj);
-
-                    if (typeof options.callback != "undefined")
-                    {
-                        options.callback(session);
-                    }
-                });                
-            },
-
-            setTheme: function(name)
-            {
-                this.editor.setTheme("ace/theme/" + name);
-            },
-
-            setKeyboardHandler: function(name, options)
-            {
-                if (name === null)
-                {
-                    this.editor.setKeyboardHandler(null);
-                    return;
-                }
-                var self = this;
-
-                // TODO: This should be done more generically
-                var id = "ace/keyboard/keybinding/" + name;
-                if (name == "hash_handler") {
-                    id = "ace/keyboard/" + name;
-                }
-
-                // async load keybinding
-                module.load(id, function(id)
-                {
-                    var obj = require(id);
-
-                    // TODO: This should be done more generically
-                    if (name == "vim") {
-                        obj = obj.Vim;
-                    } else
-                    if (name == "emacs") {
-                        obj = obj.Emacs;
-                    } else
-                    if (name == "hash_handler") {
-                        obj = new obj.HashHandler(options);
-                    }
-
-                    self.editor.setKeyboardHandler(obj);
-                });
-            },
-
-            setFontSize: function(value)
-            {
-                this.el.dom.style.fontSize = value;
+        for (var i=startRow; i<= endRow; i++) {
+            if (!re.test(doc.getLine(i))) {
+                outdent = false;
+                break;
             }
-        };
-    }
+        }
+
+        if (outdent) {
+            var deleteRange = new Range(0, 0, 0, 0);
+            for (var i=startRow; i<= endRow; i++)
+            {
+                var line = doc.getLine(i);
+                var m = line.match(re);
+                deleteRange.start.row = i;
+                deleteRange.end.row = i;
+                deleteRange.end.column = m[0].length;
+                doc.replace(deleteRange, m[1]);
+            }
+        }
+        else {
+            doc.indentRows(startRow, endRow, "#");
+        }
+    };
+
+    this.getNextLineIndent = function(state, line, tab) {
+        var indent = this.$getIndent(line);
+
+        var tokenizedLine = this.$tokenizer.getLineTokens(line, state);
+        var tokens = tokenizedLine.tokens;
+        var endState = tokenizedLine.state;
+
+        if (tokens.length && tokens[tokens.length-1].type == "comment") {
+            return indent;
+        }
+
+        if (state == "start") {
+            var match = line.match(/^.*[\{\(\[\:]\s*$/);
+            if (match) {
+                indent += tab;
+            }
+        }
+
+        return indent;
+    };
+
+    this.checkOutdent = function(state, line, input) {
+        return this.$outdent.checkOutdent(line, input);
+    };
+
+    this.autoOutdent = function(state, doc, row) {
+        this.$outdent.autoOutdent(doc, row);
+    };
+
+}).call(Mode.prototype);
+
+exports.Mode = Mode;
 });
-require.memoize('text!'+bravojs.realpath(bravojs.mainModuleDir + '/aae9e0c4eed45f3c888f8e7824a96a83f5f8f861@/lib/component.css'), [], function () {
-return ["",".x-ux-ace-editor-panel {","    border-style: solid;","    border-width: 0;","    border-color: #99bbe8;","    background-color: #ffffff;","}",""].join("\n");
+require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/python_highlight_rules'), ['pilot/oop','pilot/lang','ace/mode/text_highlight_rules'], function (require, exports, module) {
+
+
+var oop = require("pilot/oop");
+var lang = require("pilot/lang");
+var TextHighlightRules = require("ace/mode/text_highlight_rules").TextHighlightRules;
+
+var PythonHighlightRules = function() {
+
+    var keywords = lang.arrayToMap(
+        ("and|as|assert|break|class|continue|def|del|elif|else|except|exec|" +
+        "finally|for|from|global|if|import|in|is|lambda|not|or|pass|print|" +
+        "raise|return|try|while|with|yield").split("|")
+    );
+
+    var builtinConstants = lang.arrayToMap(
+        ("True|False|None|NotImplemented|Ellipsis|__debug__").split("|")
+    );
+
+    var builtinFunctions = lang.arrayToMap(
+        ("abs|divmod|input|open|staticmethod|all|enumerate|int|ord|str|any|" +
+        "eval|isinstance|pow|sum|basestring|execfile|issubclass|print|super|" +
+        "binfile|iter|property|tuple|bool|filter|len|range|type|bytearray|" +
+        "float|list|raw_input|unichr|callable|format|locals|reduce|unicode|" +
+        "chr|frozenset|long|reload|vars|classmethod|getattr|map|repr|xrange|" +
+        "cmp|globals|max|reversed|zip|compile|hasattr|memoryview|round|" +
+        "__import__|complex|hash|min|set|apply|delattr|help|next|setattr|" +
+        "buffer|dict|hex|object|slice|coerce|dir|id|oct|sorted|intern").split("|")
+    );
+
+    var futureReserved = lang.arrayToMap(
+        ("").split("|")
+    );
+
+    var strPre = "(?:r|u|ur|R|U|UR|Ur|uR)?";
+
+    var decimalInteger = "(?:(?:[1-9]\\d*)|(?:0))";
+    var octInteger = "(?:0[oO]?[0-7]+)";
+    var hexInteger = "(?:0[xX][\\dA-Fa-f]+)";
+    var binInteger = "(?:0[bB][01]+)";
+    var integer = "(?:" + decimalInteger + "|" + octInteger + "|" + hexInteger + "|" + binInteger + ")";
+
+    var exponent = "(?:[eE][+-]?\\d+)";
+    var fraction = "(?:\\.\\d+)";
+    var intPart = "(?:\\d+)";
+    var pointFloat = "(?:(?:" + intPart + "?" + fraction + ")|(?:" + intPart + "\\.))";
+    var exponentFloat = "(?:(?:" + pointFloat + "|" +  intPart + ")" + exponent + ")";
+    var floatNumber = "(?:" + exponentFloat + "|" + pointFloat + ")";
+
+    this.$rules = {
+        "start" : [ {
+            token : "comment",
+            regex : "#.*$"
+        }, {
+            token : "string",           // """ string
+            regex : strPre + '"{3}(?:[^\\\\]|\\\\.)*?"{3}'
+        }, {
+            token : "string",           // multi line """ string start
+            regex : strPre + '"{3}.*$',
+            next : "qqstring"
+        }, {
+            token : "string",           // " string
+            regex : strPre + '"(?:[^\\\\]|\\\\.)*?"'
+        }, {
+            token : "string",           // ''' string
+            regex : strPre + "'{3}(?:[^\\\\]|\\\\.)*?'{3}"
+        }, {
+            token : "string",           // multi line ''' string start
+            regex : strPre + "'{3}.*$",
+            next : "qstring"
+        }, {
+            token : "string",           // ' string
+            regex : strPre + "'(?:[^\\\\]|\\\\.)*?'"
+        }, {
+            token : "constant.numeric", // imaginary
+            regex : "(?:" + floatNumber + "|\\d+)[jJ]\\b"
+        }, {
+            token : "constant.numeric", // float
+            regex : floatNumber
+        }, {
+            token : "constant.numeric", // long integer
+            regex : integer + "[lL]\\b"
+        }, {
+            token : "constant.numeric", // integer
+            regex : integer + "\\b"
+        }, {
+            token : function(value) {
+                if (keywords.hasOwnProperty(value))
+                    return "keyword";
+                else if (builtinConstants.hasOwnProperty(value))
+                    return "constant.language";
+                else if (futureReserved.hasOwnProperty(value))
+                    return "invalid.illegal";
+                else if (builtinFunctions.hasOwnProperty(value))
+                    return "support.function";
+                else if (value == "debugger")
+                    return "invalid.deprecated";
+                else
+                    return "identifier";
+            },
+            regex : "[a-zA-Z_$][a-zA-Z0-9_$]*\\b"
+        }, {
+            token : "keyword.operator",
+            regex : "\\+|\\-|\\*|\\*\\*|\\/|\\/\\/|%|<<|>>|&|\\||\\^|~|<|>|<=|=>|==|!=|<>|="
+        }, {
+            token : "lparen",
+            regex : "[\\[\\(\\{]"
+        }, {
+            token : "rparen",
+            regex : "[\\]\\)\\}]"
+        }, {
+            token : "text",
+            regex : "\\s+"
+        } ],
+        "qqstring" : [ {
+            token : "string", // multi line """ string end
+            regex : '(?:[^\\\\]|\\\\.)*?"{3}',
+            next : "start"
+        }, {
+            token : "string",
+            regex : '.+'
+        } ],
+        "qstring" : [ {
+            token : "string",           // multi line ''' string end
+            regex : "(?:[^\\\\]|\\\\.)*?'{3}",
+            next : "start"
+        }, {
+            token : "string",
+            regex : '.+'
+        } ]
+    };
+};
+
+oop.inherits(PythonHighlightRules, TextHighlightRules);
+
+exports.PythonHighlightRules = PythonHighlightRules;
 });
 __bravojs_loaded_moduleIdentifier = bravojs.realpath(bravojs.mainModuleDir + '/87749d9714f1925e26afa48a0d592eaa39403858@/lib/ace/mode/python');
