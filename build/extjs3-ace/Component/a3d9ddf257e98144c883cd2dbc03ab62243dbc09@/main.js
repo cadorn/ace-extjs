@@ -27,7 +27,7 @@ require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/aae9e0c4eed45f3c888f8
         return {
 
             baseCls: "x-ux-ace-editor-panel",
-
+            
             initComponent: function()
             {
                 Ext.ux.AceEditor.superclass.initComponent.call(this);
@@ -35,6 +35,8 @@ require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/aae9e0c4eed45f3c888f8
 
                 self.editorClass = null;
                 self.initialized = false;
+                self._editorLoaded = false;
+                self._afterOnRender = false;
 
                 self.value = null;
                 self.editor = null;
@@ -81,8 +83,10 @@ require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/aae9e0c4eed45f3c888f8
                                 self.fireEvent('editor-saveas', self);
                             }
                         });
-                        
-                        self.firstRender();
+
+                        self._editorLoaded = true;
+                        if (self._afterOnRender && !self.initialized)
+                            self.firstRender();
                     });
                 });
             },
@@ -124,6 +128,10 @@ require.memoize(bravojs.realpath(bravojs.mainModuleDir + '/aae9e0c4eed45f3c888f8
                     // TODO: Make this look nicer
                     this.el.dom.innerHTML = "Loading Editor ...";
                 }
+
+                this._afterOnRender = true;
+                if (this._editorLoaded && !this.initialized)
+                    this.firstRender();
             },
 
             onResize: function( aw, ah )
