@@ -13,7 +13,7 @@ module.declare(["pilot/dom", "text!./component.css"], function(require, exports,
         return {
 
             baseCls: "x-ux-ace-editor-panel",
-
+            
             initComponent: function()
             {
                 Ext.ux.AceEditor.superclass.initComponent.call(this);
@@ -21,6 +21,8 @@ module.declare(["pilot/dom", "text!./component.css"], function(require, exports,
 
                 self.editorClass = null;
                 self.initialized = false;
+                self._editorLoaded = false;
+                self._afterOnRender = false;
 
                 self.value = null;
                 self.editor = null;
@@ -67,8 +69,10 @@ module.declare(["pilot/dom", "text!./component.css"], function(require, exports,
                                 self.fireEvent('editor-saveas', self);
                             }
                         });
-                        
-                        self.firstRender();
+
+                        self._editorLoaded = true;
+                        if (self._afterOnRender && !self.initialized)
+                            self.firstRender();
                     });
                 });
             },
@@ -110,6 +114,10 @@ module.declare(["pilot/dom", "text!./component.css"], function(require, exports,
                     // TODO: Make this look nicer
                     this.el.dom.innerHTML = "Loading Editor ...";
                 }
+
+                this._afterOnRender = true;
+                if (this._editorLoaded && !this.initialized)
+                    this.firstRender();
             },
 
             onResize: function( aw, ah )
