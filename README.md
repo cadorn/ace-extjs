@@ -32,6 +32,7 @@ TODO
   * Persist editor styling to survive reload
   * Better API Docs
   * ACE Command-line support
+  * Fix ACE worker logic (see: [https://github.com/pinf/loader-js/tree/master/demos/ACE](https://github.com/pinf/loader-js/tree/master/demos/ACE))
 
 
 Production
