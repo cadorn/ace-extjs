@@ -75,6 +75,16 @@ module.declare(["pilot/dom", "text!./component.css"], function(require, exports,
                             self.firstRender();
                     });
                 });
+
+                if (typeof this.on === "function")
+                {
+                    this.on("resize", function()
+                    {
+                        if(self.editor) {
+                            self.editor.resize();
+                        }
+                    });
+                }
             },
 
             firstRender: function()
@@ -118,13 +128,6 @@ module.declare(["pilot/dom", "text!./component.css"], function(require, exports,
                 this._afterOnRender = true;
                 if (this._editorLoaded && !this.initialized)
                     this.firstRender();
-            },
-
-            onResize: function( aw, ah )
-            {
-                if(this.editor) {
-                    this.editor.resize();
-                }
             },
 
             getValue: function()
