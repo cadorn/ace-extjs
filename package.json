@@ -12,10 +12,10 @@
     },
     "mappings": {
         "nodejs": {
-            "id": "nodejs.org"
+            "id": "nodejs.org/"
         },
         "pinf": {
-            "id": "pinf.org/loader"
+            "id": "pinf.org/loader/"
         },
         "jsgi": {
             "id": "github.com/kriszyp/jsgi-node/"

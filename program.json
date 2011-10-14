@@ -21,11 +21,11 @@
                 "resource": true
             }
         },
-        "nodejs.org": {
-            "provider": "nodejs.org"
+        "nodejs.org/": {
+            "provider": "nodejs.org/"
         },
-        "pinf.org/loader": {
-            "provider": "pinf.org/loader"
+        "pinf.org/loader/": {
+            "provider": "pinf.org/loader/"
         },
         "github.com/kriszyp/jsgi-node/": {
             "locator": {
@@ -38,40 +38,9 @@
         },
         "github.com/senchalabs/connect/": {
             "locator": {
-                "archive": "https://github.com/senchalabs/connect/zipball/master",
-                "descriptor": {
-                    "uid": "http://github.com/senchalabs/connect/",
-                    "native": true,
-                    "dependencies": [
-                        {
-                            "id": "registry.npmjs.org/qs/"
-                        },
-                        {
-                            "id": "github.com/bentomas/node-mime/"
-                        }
-                    ]
-                }
-            }
-        },
-        "registry.npmjs.org/qs/": {
-            "locator": {
-                "archive": "http://registry.npmjs.org/qs/-/qs-0.0.6.tgz",
-                "descriptor": {
-                    "uid": "http://registry.npmjs.org/qs/",
-                    "native": true
-                }
-            }
-        },
-        "github.com/bentomas/node-mime/": {
-            "locator": {
-                "archive": "https://github.com/bentomas/node-mime/zipball/master",
-                "descriptor": {
-                    "uid": "https://github.com/bentomas/node-mime/",
-                    "native": true,
-                    "directories": {
-                        "lib": ""
-                    }
-                }
+                "name": "connect",
+                "version": "1.6.2",
+                "pm": "npm"
             }
         }
     }
